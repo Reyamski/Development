@@ -1,0 +1,371 @@
+/* ============================================================
+   CLOUD NINE CARDS — Custom Dark Anime TCG Theme
+   Base: Shopify Dawn Theme
+   GSD Custom: Dark & Epic anime TCG redesign
+   ============================================================ */
+
+/* ── 1. CSS VARIABLES ── */
+:root {
+  --color-bg-primary: #0a0a0f;
+  --color-bg-secondary: #12121a;
+  --color-bg-card: #16161f;
+  --color-bg-nav: #08080c;
+  --color-accent-gold: #d4af37;
+  --color-accent-gold-light: #f0d060;
+  --color-accent-red: #ff1744;
+  --color-accent-red-glow: rgba(255, 23, 68, 0.4);
+  --color-accent-gold-glow: rgba(212, 175, 55, 0.3);
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #b0bec5;
+  --color-text-muted: #6b7280;
+  --color-border: #2a2a3a;
+  --shadow-neon-red: 0 0 12px rgba(255, 23, 68, 0.5);
+  --shadow-neon-gold: 0 0 12px rgba(212, 175, 55, 0.4);
+  --transition: all 0.3s ease;
+  --radius: 6px;
+}
+
+/* ── 2. GLOBAL ── */
+body {
+  background-color: var(--color-bg-primary) !important;
+  color: var(--color-text-primary) !important;
+}
+
+a {
+  color: var(--color-accent-gold);
+  transition: var(--transition);
+}
+a:hover { color: var(--color-accent-gold-light); }
+
+/* ── 3. HEADER / NAV ── */
+.header,
+header,
+.site-header {
+  background-color: var(--color-bg-nav) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  box-shadow: 0 2px 20px rgba(0,0,0,0.8);
+}
+
+.header__menu-item,
+.header a,
+.header__heading-link {
+  color: var(--color-text-primary) !important;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+}
+
+.header__menu-item:hover,
+.header a:hover {
+  color: var(--color-accent-gold) !important;
+}
+
+.header__icon svg,
+.header__icon path {
+  fill: var(--color-text-primary) !important;
+  stroke: var(--color-text-primary) !important;
+}
+
+/* ── 4. ANNOUNCEMENT BAR ── */
+.announcement-bar {
+  background-color: var(--color-accent-red) !important;
+  color: #fff !important;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── 5. HERO BANNER ── */
+.banner {
+  background-color: var(--color-bg-primary) !important;
+  min-height: 580px;
+  position: relative;
+}
+
+.banner__media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to right,
+    rgba(10,10,15,0.88) 35%,
+    rgba(10,10,15,0.25) 100%
+  );
+  z-index: 1;
+}
+
+.banner__content { z-index: 2; position: relative; }
+
+.banner__heading {
+  color: #fff !important;
+  font-size: clamp(2.2rem, 5vw, 4rem);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-shadow: 0 0 30px rgba(255,23,68,0.4);
+}
+
+.banner__heading::after {
+  content: '';
+  display: block;
+  width: 80px;
+  height: 3px;
+  background: linear-gradient(to right, var(--color-accent-red), var(--color-accent-gold));
+  margin-top: 12px;
+  border-radius: 2px;
+}
+
+/* ── 6. BUTTONS ── */
+.button,
+.btn,
+button[type="submit"],
+.shopify-payment-button__button {
+  background-color: var(--color-accent-red) !important;
+  color: #fff !important;
+  border: 1px solid var(--color-accent-red) !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border-radius: var(--radius);
+  transition: var(--transition);
+}
+
+.button:hover,
+.btn:hover {
+  background-color: transparent !important;
+  color: var(--color-accent-red) !important;
+  box-shadow: var(--shadow-neon-red);
+}
+
+.button--secondary {
+  background-color: transparent !important;
+  color: var(--color-accent-gold) !important;
+  border: 1px solid var(--color-accent-gold) !important;
+}
+
+.button--secondary:hover {
+  background-color: var(--color-accent-gold) !important;
+  color: var(--color-bg-primary) !important;
+  box-shadow: var(--shadow-neon-gold);
+}
+
+/* ── 7. PRODUCT CARDS ── */
+.card,
+.card-wrapper,
+.grid__item .card {
+  background-color: var(--color-bg-card) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius);
+  transition: var(--transition);
+  overflow: hidden;
+}
+
+.card:hover,
+.card-wrapper:hover {
+  border-color: var(--color-accent-red) !important;
+  box-shadow: 0 0 20px var(--color-accent-red-glow),
+              0 8px 32px rgba(0,0,0,0.6) !important;
+  transform: translateY(-4px);
+}
+
+.card__heading,
+.card__heading a {
+  color: var(--color-text-primary) !important;
+  font-weight: 600;
+}
+
+.price,
+.price__regular,
+.price-item {
+  color: var(--color-accent-gold) !important;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.badge--sale,
+.badge--on-sale {
+  background-color: var(--color-accent-red) !important;
+  color: #fff !important;
+  font-weight: 700;
+  box-shadow: var(--shadow-neon-red);
+}
+
+.badge--soldout {
+  background-color: #2a2a3a !important;
+  color: var(--color-text-muted) !important;
+}
+
+/* ── 8. RARITY BADGES ── */
+.badge--legendary {
+  background: linear-gradient(135deg, #d4af37, #f0d060) !important;
+  color: #0a0a0f !important;
+  font-weight: 800;
+  box-shadow: 0 0 10px rgba(212,175,55,0.6);
+}
+
+.badge--epic {
+  background-color: var(--color-accent-red) !important;
+  color: #fff !important;
+  box-shadow: var(--shadow-neon-red);
+}
+
+.badge--rare {
+  background-color: #7c3aed !important;
+  color: #fff !important;
+  box-shadow: 0 0 8px rgba(124,58,237,0.4);
+}
+
+/* ── 9. COLLECTION CARDS ── */
+.collection-card,
+.collection__image-container {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: var(--transition);
+}
+
+.collection-card:hover {
+  border-color: var(--color-accent-gold);
+  box-shadow: 0 0 16px var(--color-accent-gold-glow);
+}
+
+.collection-card__title,
+.collection__title {
+  color: var(--color-text-primary) !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── 10. SECTIONS ── */
+.section,
+.shopify-section,
+.color-background-1 {
+  background-color: var(--color-bg-primary) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.color-background-2 {
+  background-color: var(--color-bg-secondary) !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--color-text-primary) !important;
+}
+
+/* ── 11. NEWSLETTER ── */
+.newsletter-form {
+  background-color: var(--color-bg-secondary) !important;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 32px;
+}
+
+.field__input,
+input[type="email"] {
+  background-color: var(--color-bg-primary) !important;
+  border: 1px solid var(--color-border) !important;
+  color: var(--color-text-primary) !important;
+  border-radius: var(--radius);
+}
+
+.field__input:focus,
+input[type="email"]:focus {
+  border-color: var(--color-accent-red) !important;
+  box-shadow: var(--shadow-neon-red);
+  outline: none;
+}
+
+/* ── 12. CART DRAWER ── */
+.cart-drawer {
+  background-color: var(--color-bg-secondary) !important;
+  border-left: 1px solid var(--color-border) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.cart-drawer__header {
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+/* ── 13. FOOTER ── */
+footer,
+.footer,
+.footer__content-top,
+.footer__content-bottom {
+  background-color: var(--color-bg-nav) !important;
+  border-top: 1px solid var(--color-border) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.footer__heading {
+  color: var(--color-accent-gold) !important;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+
+.footer a { color: var(--color-text-secondary) !important; }
+.footer a:hover { color: var(--color-accent-gold) !important; }
+
+/* ── 14. PRODUCT PAGE ── */
+.product__title {
+  color: var(--color-text-primary) !important;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.product__price {
+  color: var(--color-accent-gold) !important;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.product-form__submit {
+  background-color: var(--color-accent-red) !important;
+  width: 100%;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.product-form__submit:hover {
+  box-shadow: var(--shadow-neon-red);
+}
+
+/* ── 15. SCROLLBAR ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-accent-gold); }
+
+/* ── 16. LOADING ── */
+.loading-overlay {
+  background-color: var(--color-bg-primary) !important;
+}
+
+.loading-overlay__spinner {
+  border-color: var(--color-accent-red) transparent transparent transparent !important;
+}
+
+/* ── 17. PAGINATION ── */
+.pagination .page-numbers {
+  color: var(--color-text-secondary) !important;
+  border-color: var(--color-border) !important;
+}
+
+.pagination .page-numbers.current {
+  background-color: var(--color-accent-red) !important;
+  border-color: var(--color-accent-red) !important;
+  color: #fff !important;
+}
+
+/* ── 18. MOBILE ── */
+@media (max-width: 768px) {
+  .banner { min-height: 400px; }
+  .banner__heading { font-size: clamp(1.8rem, 6vw, 2.5rem); }
+  .card:hover { transform: none; }
+  .newsletter-form { padding: 20px; }
+}
