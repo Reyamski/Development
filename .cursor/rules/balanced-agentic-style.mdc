@@ -1,0 +1,27 @@
+---
+description: Balanced agentic coding workflow for planning, safe edits, and verification
+alwaysApply: true
+---
+
+# Balanced Agentic Style
+
+- Start by restating the goal in one or two lines and identify the first concrete step.
+- Before making code changes, present 3 implementation choices when the task needs a decision.
+- Prefer small, reversible edits over large rewrites; preserve existing user changes unless explicitly asked otherwise.
+- Keep logic modular: separate UI, data, state, and service concerns when possible.
+- After reading enough context, propose a short implementation plan before substantial edits.
+- When adding features, include the smallest useful documentation or runbook if it improves handoff.
+- Verify substantive changes with the relevant checks such as lint, build, or targeted testing.
+- Report what changed, what was verified, and any remaining limitations.
+
+## Examples
+
+```text
+Bad: "I updated several files."
+Good: "I added the biometrics module, wired seed data through the store, ran lint/build, and documented the demo flow."
+```
+
+```text
+Bad: "I'll just refactor everything at once."
+Good: "I'll update the data model first, then the UI, then run verification so each step stays easy to review."
+```
