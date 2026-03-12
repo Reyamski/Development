@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RDS Cost Estimator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { mono: ['ui-monospace','SFMono-Regular','Menlo','monospace'] } } }
+    }
+  </script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .scroll { scrollbar-width: thin; scrollbar-color: #374151 transparent; }
+    .scroll::-webkit-scrollbar { width: 6px; }
+    .scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+    .input { @apply w-full bg-gray-750 border border-gray-600 rounded px-3 py-1.5 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-blue-400; }
+    .input-sm { @apply w-full bg-gray-750 border border-gray-600 rounded px-2 py-1 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-blue-400; }
+    .bg-gray-750 { background-color: #2d3748; }
+    .btn-primary { @apply w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-2 px-4 rounded transition-colors; }
+    .btn-secondary { @apply w-full bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-gray-200 text-sm font-medium py-1.5 px-4 rounded transition-colors; }
+    .btn-green { @apply w-full bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-1.5 px-4 rounded transition-colors; }
+    .label { @apply block text-xs font-medium text-gray-300 uppercase tracking-wider mb-1; }
+    .label-sm { @apply block text-[10px] text-gray-400 mb-0.5 uppercase; }
+    .card { @apply bg-gray-900 border border-gray-800 rounded p-3; }
+    .delta-pos { @apply text-red-400; }
+    .delta-neg { @apply text-green-400; }
+  </style>
+</head>
+<body class="h-full bg-gray-950 text-gray-200 font-mono" x-data="app()" x-cloak>
+
+  <!-- Header -->
+  <header class="border-b border-gray-800 px-6 py-3 flex items-center gap-6 bg-gray-900">
+    <span class="text-blue-400 font-semibold tracking-wide">RDS Cost Estimator</span>
+    <nav class="flex gap-1">
+      <button @click="activeTab='infra'"
+        :class="activeTab==='infra' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'"
+        class="px-3 py-1.5 rounded text-sm transition-colors">Infrastructure</button>
+      <button @click="activeTab='estimator'"
+        :class="activeTab==='estimator' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'"
+        class="px-3 py-1.5 rounded text-sm transition-colors">Cost Estimator</button>
+      <button @click="activeTab='scenarios'; loadScenarios()"
+        :class="activeTab==='scenarios' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'"
+        class="px-3 py-1.5 rounded text-sm transition-colors">Saved Scenarios</button>
+    </nav>
+    <div class="ml-auto text-[10px] text-gray-600" x-show="cache.updatedAt">
+      Pricing: <span class="text-gray-500" x-text="cache.updatedAt ? new Date(cache.updatedAt).toLocaleString() : '—'"></span>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════
+       INFRASTRUCTURE TAB
+  ══════════════════════════════════════════════════════════ -->
+  <main x-show="activeTab==='infra'" class="flex h-[calc(100vh-49px)] overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside class="w-72 bg-gray-900 border-r border-gray-800 flex flex-col p-4 gap-4 overflow-y-auto scroll">
+
+      <!-- Profile -->
+      <div>
+        <label class="label">AWS Profile</label>
+        <select x-model="profile" @focus="loadProfiles()"
+          x-effect="$el.innerHTML = '<option value=\'\' disabled>Select profile\u2026</option>' + profiles.map(p => `<option value='${p}'>${p}</option>`).join('')"
+          class="w-full bg-gray-750 border border-gray-600 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-400">
+        </select>
+      </div>
+
+      <!-- Region -->
+      <div>
+        <label class="label">Region</label>
+        <input type="text" x-model="region" placeholder="us-east-1" class="input" />
+      </div>
+
+      <!-- Load instances -->
+      <button @click="loadInstances()" :disabled="infra.loading || !profile"
+        class="btn-primary">
+        <span x-text="infra.loading ? 'Loading…' : 'Load Instances'"></span>
+      </button>
+
+      <!-- SSO expired: re-auth UI -->
+      <template x-if="infra.ssoExpired">
+        <div class="space-y-2">
+          <div class="text-xs text-amber-400 bg-amber-950 border border-amber-800 rounded p-2">
+            SSO token expired for <strong x-text="profile"></strong>. Re-authenticate to continue.
+          </div>
+          <button
+            @click="reauthProfile()"
+            :disabled="infra.reauth.status === 'streaming'"
+            class="w-full bg-amber-700 hover:bg-amber-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-1.5 px-4 rounded transition-colors"
+          >
+            <span x-text="infra.reauth.status === 'streaming' ? 'Authenticating…' : 'Re-authenticate'"></span>
+          </button>
+          <template x-if="infra.reauth.log.length > 0">
+            <div
+              id="reauth-log"
+              class="bg-gray-800 border border-gray-700 rounded p-2 h-28 overflow-y-auto scroll space-y-0.5"
+            >
+              <template x-for="(line, i) in infra.reauth.log" :key="i">
+                <div class="text-[10px] text-gray-400 font-mono" x-text="line"></div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Generic error (non-SSO) -->
+      <template x-if="infra.error && !infra.ssoExpired">
+        <div class="text-xs text-red-400 bg-red-950 border border-red-800 rounded p-2" x-text="infra.error"></div>
+      </template>
+
+      <!-- Pricing Cache -->
+      <div class="border-t border-gray-800 pt-3 space-y-2">
+        <label class="label">Pricing Cache</label>
+        <div class="text-[10px] text-gray-500 bg-gray-800 rounded px-2 py-1.5">
+          <template x-if="cache.updatedAt">
+            <div>Updated: <span class="text-gray-400" x-text="new Date(cache.updatedAt).toLocaleString()"></span></div>
+          </template>
+          <template x-if="!cache.updatedAt">
+            <div class="text-amber-500">No cache — refresh to enable cost estimates.</div>
+          </template>
+          <template x-if="cache.instanceCount">
+            <div class="text-gray-600" x-text="`${cache.instanceCount} instance configs · ${cache.riOfferingCount || 0} RI offerings`"></div>
+          </template>
+        </div>
+        <button @click="refreshPricing()" :disabled="cache.refreshing || !profile"
+          class="btn-secondary text-xs">
+          <span x-text="cache.refreshing ? `Refreshing… ${cache.pct}%` : 'Refresh Pricing Data'"></span>
+        </button>
+        <template x-if="cache.log.length > 0">
+          <div id="cache-log" class="bg-gray-800 border border-gray-700 rounded p-2 h-24 overflow-y-auto scroll space-y-0.5">
+            <template x-for="(l,i) in cache.log" :key="i">
+              <div class="text-[10px] text-gray-400" x-text="l"></div>
+            </template>
+          </div>
+        </template>
+      </div>
+
+      <!-- Cost components -->
+      <div class="border-t border-gray-800 pt-3 space-y-1.5">
+        <label class="label">Cost Components</label>
+        <template x-for="c in allComponents" :key="c.id">
+          <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+            <input type="checkbox" :value="c.id" x-model="enabledComponents" class="accent-blue-500" />
+            <span x-text="c.label"></span>
+            <span x-show="!c.default" class="text-[10px] text-gray-600">(opt-in)</span>
+          </label>
+        </template>
+      </div>
+
+    </aside>
+
+    <!-- Main -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Summary bar -->
+      <div x-show="infra.instances.length > 0"
+        class="px-4 py-2 bg-gray-900/60 border-b border-gray-800 flex items-center gap-6 text-xs">
+        <span class="text-gray-500"><span class="text-gray-200 font-semibold" x-text="infra.instances.length"></span> instances</span>
+        <span class="text-gray-500">Total est. monthly:
+          <span class="text-green-400 font-semibold text-sm" x-text="'$' + totalCurrentMonthly.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})"></span>
+        </span>
+        <span class="text-gray-500">Annual:
+          <span class="text-green-400 font-semibold" x-text="'$' + (totalCurrentMonthly*12).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})"></span>
+        </span>
+        <span x-show="!cache.updatedAt" class="text-amber-500 italic">Refresh pricing to see costs</span>
+      </div>
+
+      <div class="flex-1 overflow-y-auto scroll">
+        <div x-show="infra.instances.length === 0 && !infra.loading"
+          class="p-8 text-center text-gray-600 text-sm">Select a profile and click Load Instances.</div>
+
+        <div x-show="infra.loading"
+          class="p-8 text-center text-gray-500 text-sm flex items-center justify-center gap-3">
+          <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          Loading instances…
+        </div>
+
+        <table x-show="infra.instances.length > 0" class="w-full text-xs">
+          <thead class="sticky top-0 bg-gray-900 border-b border-gray-800 z-10">
+            <tr>
+              <th class="w-8 px-3 py-2"></th>
+              <th class="px-3 py-2 text-left text-gray-500 font-medium">Instance</th>
+              <th class="px-3 py-2 text-left text-gray-500 font-medium">Engine</th>
+              <th class="px-3 py-2 text-left text-gray-500 font-medium">Class</th>
+              <th class="px-3 py-2 text-left text-gray-500 font-medium">Storage</th>
+              <th class="px-3 py-2 text-left text-gray-500 font-medium">IOPS</th>
+              <th class="px-3 py-2 text-left text-gray-500 font-medium">Multi-AZ</th>
+              <th class="px-3 py-2 text-left text-gray-500 font-medium">Replicas</th>
+              <th class="px-3 py-2 text-left text-gray-500 font-medium">RI Coverage</th>
+              <th class="px-3 py-2 text-right text-gray-500 font-medium">Est. Monthly</th>
+              <th class="px-3 py-2 text-right text-gray-500 font-medium">Est. Annual</th>
+            </tr>
+          </thead>
+          <!-- <template x-for> must be a direct child of <table> — browsers move <template> out of <tbody> -->
+          <template x-for="(inst, i) in infra.instances" :key="inst.id">
+            <tbody>
+              <tr class="hover:bg-gray-800/40 cursor-pointer border-b border-gray-800/50"
+                :class="{'bg-blue-950/20': inst._selected}"
+                @click="toggleSelect(inst)">
+                <td class="px-3 py-1.5">
+                  <input type="checkbox" :checked="inst._selected" @click.stop="toggleSelect(inst)" class="accent-blue-500" />
+                </td>
+                <td class="px-3 py-1.5 text-blue-400 font-medium" x-text="inst.id"></td>
+                <td class="px-3 py-1.5">
+                  <span class="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                    :class="{
+                      'bg-orange-900 text-orange-300': inst.engine.includes('mysql') && !inst.engine.includes('aurora'),
+                      'bg-purple-900 text-purple-300': inst.engine.includes('aurora'),
+                      'bg-blue-900 text-blue-300':     inst.engine.includes('postgres') && !inst.engine.includes('aurora'),
+                      'bg-green-900 text-green-300':   inst.engine.includes('docdb'),
+                    }"
+                    x-text="inst.engine"></span>
+                </td>
+                <td class="px-3 py-1.5 text-gray-300" x-text="inst.instanceClass"></td>
+                <td class="px-3 py-1.5 text-gray-400" x-text="`${inst.allocatedGB} GB (${inst.storageType})`"></td>
+                <td class="px-3 py-1.5 text-gray-400" x-text="inst.iops ? inst.iops.toLocaleString() : '—'"></td>
+                <td class="px-3 py-1.5">
+                  <span :class="inst.multiAZ ? 'text-green-400' : 'text-gray-600'" x-text="inst.multiAZ ? 'Yes' : 'No'"></span>
+                </td>
+                <td class="px-3 py-1.5 text-gray-400" x-text="inst.replicaCount || '—'"></td>
+                <td class="px-3 py-1.5">
+                  <span x-show="inst.riCoverage" class="text-amber-400 text-[10px]"
+                    x-text="inst.riCoverage ? `${inst.riCoverage.term} · ${inst.riCoverage.monthsRemaining}mo left` : ''"></span>
+                  <span x-show="!inst.riCoverage" class="text-gray-700">—</span>
+                </td>
+                <td class="px-3 py-1.5 text-right text-green-400 font-semibold">
+                  <span x-show="inst.currentCost && !inst.currentCost.error"
+                    x-text="inst.currentCost ? '$' + inst.currentCost.totalMonthly.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : ''"></span>
+                  <span x-show="!inst.currentCost || inst.currentCost?.error" class="text-gray-600">—</span>
+                </td>
+                <td class="px-3 py-1.5 text-right text-gray-500">
+                  <span x-show="inst.currentCost && !inst.currentCost.error"
+                    x-text="inst.currentCost ? '$' + (inst.currentCost.totalMonthly*12).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : ''"></span>
+                </td>
+              </tr>
+            </tbody>
+          </template>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- ══════════════════════════════════════════════════════════
+       COST ESTIMATOR TAB
+  ══════════════════════════════════════════════════════════ -->
+  <main x-show="activeTab==='estimator'" class="flex h-[calc(100vh-49px)] overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside class="w-80 bg-gray-900 border-r border-gray-800 flex flex-col p-4 gap-4 overflow-y-auto scroll">
+
+      <!-- Instance selection -->
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <label class="label">Target Instance(s)</label>
+          <label class="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
+            <input type="checkbox" x-model="est.applyToAll" class="accent-blue-500" />
+            All loaded
+          </label>
+        </div>
+        <!-- x-effect regenerates options when infra.instances changes; x-for inside <select> gets moved by browser parser -->
+        <select x-show="!est.applyToAll"
+          x-model="est.selectedInstanceId"
+          @change="est.selectedInstanceId && prefillCurrent()"
+          x-effect="$el.innerHTML = '<option value=\'\'>' + 'Select instance\u2026' + '</option>' + infra.instances.map(i => `<option value='${i.id}'>${i.id} (${i.engine})</option>`).join('')"
+          class="w-full bg-gray-750 border border-gray-600 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-400">
+        </select>
+        <div x-show="est.applyToAll"
+          class="text-xs text-gray-500 bg-gray-800 rounded px-2 py-1.5"
+          x-text="`Applying to all ${infra.instances.length} loaded instances`"></div>
+      </div>
+
+      <!-- Proposed changes form -->
+      <div class="border-t border-gray-800 pt-3 space-y-3">
+        <label class="label">Proposed Changes</label>
+        <p class="text-[10px] text-gray-600">Leave blank / unchanged to keep current value.</p>
+
+        <div>
+          <label class="label-sm">Instance Class</label>
+          <select x-model="est.proposed.instanceClass"
+            x-effect="$el.innerHTML = '<option value=\'\'>\u2014 keep current \u2014</option>' + est.availableClasses.map(c => `<option value='${c}'>${c}</option>`).join('')"
+            class="w-full bg-gray-750 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-400">
+          </select>
+        </div>
+
+        <div>
+          <label class="label-sm">Storage Type</label>
+          <select x-model="est.proposed.storageType"
+            class="w-full bg-gray-750 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-400">
+            <option value="">— keep current —</option>
+            <option value="gp2">gp2 (General Purpose)</option>
+            <option value="gp3">gp3 (General Purpose v3)</option>
+            <option value="io1">io1 (Provisioned IOPS)</option>
+            <option value="io2">io2 (Provisioned IOPS v2)</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="label-sm">Storage GB</label>
+            <input type="number" x-model.number="est.proposed.allocatedGB" placeholder="keep current" class="input-sm" />
+          </div>
+          <div>
+            <label class="label-sm">IOPS</label>
+            <input type="number" x-model.number="est.proposed.iops" placeholder="keep current" class="input-sm" />
+          </div>
+        </div>
+
+        <div>
+          <label class="label-sm">Throughput MB/s (gp3)</label>
+          <input type="number" x-model.number="est.proposed.throughputMBps" placeholder="keep current" class="input-sm" />
+        </div>
+
+        <div>
+          <label class="label-sm">Read Replicas</label>
+          <input type="number" x-model.number="est.proposed.replicaCount" placeholder="keep current" class="input-sm" min="0" />
+        </div>
+        <div>
+          <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+            <input type="checkbox" x-model="est.proposed.multiAZ" class="accent-blue-500" />
+            Multi-AZ
+          </label>
+        </div>
+      </div>
+
+      <!-- Cost components for this estimate -->
+      <div class="border-t border-gray-800 pt-3 space-y-1.5">
+        <label class="label">Components</label>
+        <template x-for="c in allComponents" :key="c.id">
+          <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+            <input type="checkbox" :value="c.id" x-model="enabledComponents" class="accent-blue-500" />
+            <span x-text="c.label"></span>
+          </label>
+        </template>
+      </div>
+
+      <button @click="runEstimate()"
+        :disabled="est.loading || (!est.applyToAll && !est.selectedInstanceId)"
+        class="btn-primary">
+        <span x-text="est.loading ? 'Calculating…' : 'Calculate Cost Impact'"></span>
+      </button>
+
+      <!-- Save scenario (gated) -->
+      <div class="border-t border-gray-800 pt-3 space-y-2">
+        <label class="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+          <input type="checkbox" x-model="scenariosEnabled" class="accent-emerald-500" />
+          Enable scenario saving
+        </label>
+        <template x-if="scenariosEnabled && est.results.length > 0">
+          <div class="space-y-1.5">
+            <input type="text" x-model="est.scenarioName" placeholder="Scenario name…" class="input-sm" />
+            <button @click="saveScenario()" :disabled="!est.scenarioName" class="btn-green text-xs">
+              Save Scenario
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <template x-if="est.error">
+        <div class="text-xs text-red-400 bg-red-950 border border-red-800 rounded p-2" x-text="est.error"></div>
+      </template>
+    </aside>
+
+    <!-- Main results -->
+    <div class="flex-1 overflow-y-auto scroll p-4 space-y-6">
+
+      <template x-if="est.results.length === 0 && !est.loading">
+        <div class="p-8 text-center text-gray-600 text-sm">
+          <p>Select an instance (or all), configure proposed changes, and click Calculate.</p>
+          <p class="mt-2 text-[11px]">Load instances and refresh pricing first if you haven't already.</p>
+        </div>
+      </template>
+
+      <!-- Batch summary bar -->
+      <template x-if="est.results.length > 1">
+        <div class="card flex items-center gap-8">
+          <div>
+            <p class="text-[10px] text-gray-600 uppercase tracking-wider">Total Monthly Delta</p>
+            <p class="text-xl font-bold"
+              :class="est.batchDeltaMonthly > 0 ? 'text-red-400' : est.batchDeltaMonthly < 0 ? 'text-green-400' : 'text-gray-400'">
+              <span x-text="(est.batchDeltaMonthly > 0 ? '+' : '') + '$' + Math.abs(est.batchDeltaMonthly).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})"></span>
+            </p>
+          </div>
+          <div>
+            <p class="text-[10px] text-gray-600 uppercase tracking-wider">Annual</p>
+            <p class="text-lg font-semibold"
+              :class="est.batchDeltaMonthly > 0 ? 'text-red-400' : est.batchDeltaMonthly < 0 ? 'text-green-400' : 'text-gray-400'">
+              <span x-text="(est.batchDeltaMonthly > 0 ? '+' : '') + '$' + Math.abs(est.batchDeltaMonthly * 12).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})"></span>
+            </p>
+          </div>
+          <div class="text-xs text-gray-500" x-text="`across ${est.results.length} instances`"></div>
+        </div>
+      </template>
+
+      <!-- Per-instance result cards -->
+      <template x-for="(res, i) in est.results" :key="res.instanceId || i">
+        <div class="space-y-3">
+          <h2 class="text-sm font-semibold text-gray-300 border-b border-gray-800 pb-1"
+            x-text="res.instanceId || 'Instance'"></h2>
+
+          <template x-if="res.error">
+            <div class="text-xs text-red-400 bg-red-950 border border-red-800 rounded p-3" x-text="res.error"></div>
+          </template>
+
+          <template x-if="!res.error">
+            <div class="space-y-4">
+
+              <!-- Side-by-side cost breakdown -->
+              <div class="grid grid-cols-2 gap-4">
+                <!-- Current -->
+                <div class="card space-y-2">
+                  <p class="text-[10px] text-gray-500 uppercase tracking-wider">Current</p>
+                  <template x-for="item in res.current.lineItems" :key="item.label">
+                    <div class="flex justify-between text-xs">
+                      <span class="text-gray-400" x-text="item.label"></span>
+                      <span class="text-gray-300" x-text="'$' + item.monthly.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})"></span>
+                    </div>
+                  </template>
+                  <div class="flex justify-between text-sm font-semibold border-t border-gray-700 pt-2">
+                    <span class="text-gray-200">Total / month</span>
+                    <span class="text-green-400" x-text="'$' + res.current.totalMonthly.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})"></span>
+                  </div>
+                  <div class="flex justify-between text-xs text-gray-500 border-t border-gray-800 pt-1">
+                    <span>Annual</span>
+                    <span x-text="'$' + res.current.totalAnnual.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})"></span>
+                  </div>
+                </div>
+
+                <!-- Proposed -->
+                <div class="card space-y-2 border-blue-900">
+                  <p class="text-[10px] text-blue-500 uppercase tracking-wider">Proposed</p>
+                  <template x-for="item in res.proposed.lineItems" :key="item.label">
+                    <div class="flex justify-between text-xs">
+                      <span class="text-gray-400" x-text="item.label"></span>
+                      <span class="text-gray-300" x-text="'$' + item.monthly.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})"></span>
+                    </div>
+                  </template>
+                  <div class="flex justify-between text-sm font-semibold border-t border-gray-700 pt-2">
+                    <span class="text-gray-200">Total / month</span>
+                    <span class="text-blue-400" x-text="'$' + res.proposed.totalMonthly.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})"></span>
+                  </div>
+                  <div class="flex justify-between text-xs text-gray-500 border-t border-gray-800 pt-1">
+                    <span>Annual</span>
+                    <span x-text="'$' + res.proposed.totalAnnual.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Monthly delta banner -->
+              <div class="rounded p-3 flex items-center justify-between"
+                :class="res.deltaMonthly > 0 ? 'bg-red-950 border border-red-800' : res.deltaMonthly < 0 ? 'bg-green-950 border border-green-800' : 'bg-gray-800 border border-gray-700'">
+                <div>
+                  <p class="text-[10px] text-gray-500 uppercase tracking-wider">Monthly Change</p>
+                  <p class="text-2xl font-bold"
+                    :class="res.deltaMonthly > 0 ? 'text-red-400' : res.deltaMonthly < 0 ? 'text-green-400' : 'text-gray-400'">
+                    <span x-text="(res.deltaMonthly > 0 ? '+' : '') + '$' + Math.abs(res.deltaMonthly).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})"></span>
+                  </p>
+                </div>
+                <div class="text-right">
+                  <p class="text-[10px] text-gray-500 uppercase">Annual Change</p>
+                  <p class="text-lg font-semibold"
+                    :class="res.deltaMonthly > 0 ? 'text-red-400' : res.deltaMonthly < 0 ? 'text-green-400' : 'text-gray-400'">
+                    <span x-text="(res.deltaMonthly > 0 ? '+' : '') + '$' + Math.abs(res.deltaAnnual).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})"></span>
+                  </p>
+                  <p class="text-[10px] text-gray-500" x-text="`${res.deltaPct > 0 ? '+' : ''}${res.deltaPct}% vs current`"></p>
+                </div>
+              </div>
+
+              <!-- RI options grid -->
+              <div x-show="res.proposed.riGrid && res.proposed.riGrid.length > 0" class="card space-y-2">
+                <p class="text-[10px] text-gray-500 uppercase tracking-wider">Reserved Instance Options (proposed instance, instance cost only)</p>
+                <div class="overflow-x-auto">
+                  <table class="w-full text-xs whitespace-nowrap">
+                    <thead class="border-b border-gray-800">
+                      <tr>
+                        <th class="px-2 py-1.5 text-left text-gray-500 font-medium">Term</th>
+                        <th class="px-2 py-1.5 text-left text-gray-500 font-medium">Option</th>
+                        <th class="px-2 py-1.5 text-right text-gray-500 font-medium">RI Monthly</th>
+                        <th class="px-2 py-1.5 text-right text-gray-500 font-medium">Upfront</th>
+                        <th class="px-2 py-1.5 text-right text-gray-500 font-medium">Effective Total/mo</th>
+                        <th class="px-2 py-1.5 text-right text-gray-500 font-medium">Instance Savings</th>
+                      </tr>
+                    </thead>
+                    <!-- On-demand baseline row -->
+                    <tbody>
+                      <tr class="bg-gray-800/30 border-b border-gray-800/50">
+                        <td class="px-2 py-1.5 text-gray-400 font-medium">On-Demand</td>
+                        <td class="px-2 py-1.5 text-gray-600">—</td>
+                        <td class="px-2 py-1.5 text-right text-gray-300"
+                          x-text="'$' + res.proposed.odMonthlyInstanceOnly.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})"></td>
+                        <td class="px-2 py-1.5 text-right text-gray-600">—</td>
+                        <td class="px-2 py-1.5 text-right text-gray-300"
+                          x-text="'$' + res.proposed.totalMonthly.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})"></td>
+                        <td class="px-2 py-1.5 text-right text-gray-600">baseline</td>
+                      </tr>
+                    </tbody>
+                    <!-- x-for as direct child of <table> to avoid browser moving <template> out of <tbody> -->
+                    <template x-for="(ri, j) in (res.proposed.riGrid || [])" :key="j">
+                      <tbody>
+                        <tr class="hover:bg-gray-800/30 border-b border-gray-800/50">
+                          <td class="px-2 py-1.5 text-gray-400" x-text="ri.term"></td>
+                          <td class="px-2 py-1.5 text-gray-400" x-text="ri.option"></td>
+                          <td class="px-2 py-1.5 text-right text-gray-300"
+                            x-text="'$' + ri.ri_monthly.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})"></td>
+                          <td class="px-2 py-1.5 text-right text-gray-400"
+                            x-text="ri.upfront > 0 ? '$' + ri.upfront.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : '—'"></td>
+                          <td class="px-2 py-1.5 text-right text-blue-400 font-semibold"
+                            x-text="'$' + ri.effective_total_monthly.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})"></td>
+                          <td class="px-2 py-1.5 text-right text-green-400 font-semibold"
+                            x-text="ri.savings_pct + '%'"></td>
+                        </tr>
+                      </tbody>
+                    </template>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </main>
+
+  <!-- ══════════════════════════════════════════════════════════
+       SCENARIOS TAB
+  ══════════════════════════════════════════════════════════ -->
+  <main x-show="activeTab==='scenarios'" class="flex h-[calc(100vh-49px)] overflow-hidden">
+    <div class="flex-1 overflow-y-auto scroll p-6 space-y-4">
+
+      <template x-if="!scenariosEnabled">
+        <div class="card text-sm text-gray-500 text-center py-8">
+          <p>Scenario saving is disabled.</p>
+          <p class="mt-1 text-xs">Enable it in the Cost Estimator sidebar to save and load scenarios.</p>
+        </div>
+      </template>
+
+      <template x-if="scenariosEnabled">
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-gray-300">Saved Scenarios</h2>
+            <button @click="loadScenarios()" class="text-xs text-gray-500 hover:text-gray-300">Refresh</button>
+          </div>
+
+          <template x-if="scenarios.list.length === 0">
+            <div class="card text-sm text-gray-600 text-center py-8">No saved scenarios yet.</div>
+          </template>
+
+          <div class="grid grid-cols-3 gap-4">
+            <template x-for="sc in scenarios.list" :key="sc.id">
+              <div class="card space-y-2 hover:border-gray-700 transition-colors">
+                <p class="text-sm font-semibold text-gray-200" x-text="sc.name"></p>
+                <p class="text-[10px] text-gray-600"
+                  x-text="new Date(sc.createdAt).toLocaleString() + ' · ' + (sc.instanceCount || 0) + ' instance(s)'"></p>
+                <p class="text-xs" x-show="sc.totalDeltaMonthly !== undefined"
+                  :class="sc.totalDeltaMonthly > 0 ? 'text-red-400' : sc.totalDeltaMonthly < 0 ? 'text-green-400' : 'text-gray-400'">
+                  <span x-text="(sc.totalDeltaMonthly > 0 ? '+' : '') + '$' + Math.abs(sc.totalDeltaMonthly || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) + '/mo'"></span>
+                </p>
+                <div class="flex gap-2 pt-1">
+                  <button @click="loadScenarioIntoEstimator(sc.id)"
+                    class="flex-1 bg-blue-900 hover:bg-blue-800 text-blue-300 text-xs py-1 px-2 rounded transition-colors">
+                    Load
+                  </button>
+                  <button @click="deleteScenario(sc.id)"
+                    class="flex-1 bg-red-950 hover:bg-red-900 text-red-400 text-xs py-1 px-2 rounded transition-colors">
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+  </main>
+
+<script>
+function app() {
+  return {
+    activeTab: 'infra',
+    profile:   '',
+    region:    'us-east-1',
+    profiles:  [],
+    scenariosEnabled: false,
+
+    allComponents: [
+      { id: 'instance',   label: 'Instance class',        default: true },
+      { id: 'storage',    label: 'Storage',               default: true },
+      { id: 'iops',       label: 'Provisioned IOPS',      default: true },
+      { id: 'replicas',   label: 'Read Replicas',         default: true },
+      { id: 'backup',     label: 'Backup Storage',        default: false },
+      { id: 'monitoring', label: 'Performance Insights',  default: false },
+    ],
+
+    enabledComponents: ['instance', 'storage', 'iops', 'replicas'],
+
+    cache: {
+      updatedAt: null,
+      instanceCount: 0,
+      riOfferingCount: 0,
+      refreshing: false,
+      pct: 0,
+      log: [],
+    },
+
+    infra: {
+      loading:    false,
+      instances:  [],
+      error:      null,
+      ssoExpired: false,
+      reauth: { status: 'idle', log: [] },
+    },
+
+    est: {
+      loading:            false,
+      applyToAll:         false,
+      selectedInstanceId: '',
+      availableClasses:   [],
+      proposed: {
+        instanceClass: '',
+        storageType:   '',
+        allocatedGB:   null,
+        iops:          null,
+        throughputMBps: null,
+        replicaCount:  null,
+        multiAZ:       false,
+      },
+      results:       [],
+      batchDeltaMonthly: 0,
+      error:         null,
+      scenarioName:  '',
+    },
+
+    scenarios: {
+      list: [],
+    },
+
+    get totalCurrentMonthly() {
+      return this.infra.instances.reduce((sum, inst) => {
+        return sum + (inst.currentCost?.totalMonthly || 0);
+      }, 0);
+    },
+
+    // ── Init ──────────────────────────────────────
+
+    init() {
+      this.loadProfiles();
+      this.checkCacheInfo();
+      this.loadAvailableClasses();
+    },
+
+    // ── Profiles ──────────────────────────────────
+
+    async loadProfiles() {
+      if (this.profiles.length > 0) return;
+      try {
+        const data = await fetch('/api/infra/profiles').then(r => r.json());
+        this.profiles = data.profiles || [];
+      } catch(e) { console.error(e); }
+    },
+
+    // ── Pricing cache ─────────────────────────────
+
+    async checkCacheInfo() {
+      try {
+        const data = await fetch(`/api/pricing/cache?region=${this.region}`).then(r => r.json());
+        if (data.exists) {
+          this.cache.updatedAt      = data.updatedAt;
+          this.cache.instanceCount  = data.instanceCount;
+          this.cache.riOfferingCount = data.riOfferingCount;
+        }
+      } catch(e) {}
+    },
+
+    async refreshPricing() {
+      if (!this.profile) return;
+      this.cache.refreshing = true;
+      this.cache.pct = 0;
+      this.cache.log = [];
+      try {
+        const resp = await fetch(`/api/pricing/refresh/stream?profile=${encodeURIComponent(this.profile)}&region=${encodeURIComponent(this.region)}`);
+        await this._readSSE(resp, (ev) => {
+          if (ev.type === 'progress') {
+            this.cache.log.push(ev.message);
+            this.cache.pct = ev.pct || 0;
+            this._scrollCacheLog();
+          } else if (ev.type === 'done') {
+            this.cache.log.push('✓ Done.');
+            this._scrollCacheLog();
+            if (ev.info) {
+              this.cache.updatedAt       = ev.info.updatedAt;
+              this.cache.instanceCount   = ev.info.instanceCount;
+              this.cache.riOfferingCount = ev.info.riOfferingCount;
+            }
+            this.loadAvailableClasses();
+            // Reload costs for already-loaded instances
+            if (this.infra.instances.length > 0) this.loadInstances();
+          }
+        });
+      } catch(e) {
+        this.cache.log.push('Error: ' + e.message);
+      } finally {
+        this.cache.refreshing = false;
+      }
+    },
+
+    _scrollCacheLog() {
+      this.$nextTick(() => {
+        const el = document.getElementById('cache-log');
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    // ── Infrastructure ────────────────────────────
+
+    async loadInstances() {
+      if (!this.profile) return;
+      this.infra.loading    = true;
+      this.infra.error      = null;
+      this.infra.ssoExpired = false;
+      this.infra.instances  = [];
+      try {
+        const data = await fetch(
+          `/api/infra/instances?profile=${encodeURIComponent(this.profile)}&region=${encodeURIComponent(this.region)}`
+        ).then(r => r.json());
+
+        if (data.ssoExpired) {
+          this.infra.ssoExpired = true;
+          this.infra.error = data.error || 'SSO token expired.';
+          return;
+        }
+        if (data.error) {
+          this.infra.error = data.error;
+          return;
+        }
+        this.infra.instances = (data.instances || []).map(i => ({ ...i, _selected: true }));
+      } catch(e) {
+        this.infra.error = e.message;
+      } finally {
+        this.infra.loading = false;
+      }
+    },
+
+    async reauthProfile() {
+      this.infra.reauth.status = 'streaming';
+      this.infra.reauth.log    = [];
+      this.infra.ssoExpired    = false;
+      this.infra.error         = null;
+      try {
+        const resp = await fetch(`/api/sso/login/stream?profile=${encodeURIComponent(this.profile)}`);
+        await this._readSSE(resp, (ev) => {
+          switch (ev.type) {
+            case 'log':
+              this.infra.reauth.log.push(ev.message);
+              this._scrollReauthLog();
+              break;
+            case 'done':
+              this.infra.reauth.log.push('✓ Re-authenticated. Reloading instances…');
+              this._scrollReauthLog();
+              setTimeout(() => {
+                this.infra.reauth.status = 'done';
+                this.loadInstances();
+              }, 800);
+              break;
+            case 'error':
+              this.infra.reauth.log.push(`Error: ${ev.message}`);
+              this.infra.error = ev.message;
+              break;
+          }
+        });
+      } catch(e) {
+        this.infra.error = e.message;
+      } finally {
+        if (this.infra.reauth.status === 'streaming') this.infra.reauth.status = 'done';
+      }
+    },
+
+    _scrollReauthLog() {
+      this.$nextTick(() => {
+        const el = document.getElementById('reauth-log');
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    toggleSelect(inst) {
+      inst._selected = !inst._selected;
+    },
+
+    // ── Estimator ─────────────────────────────────
+
+    async loadAvailableClasses() {
+      try {
+        const data = await fetch(`/api/pricing/instance-classes?region=${encodeURIComponent(this.region)}`).then(r => r.json());
+        this.est.availableClasses = data.classes || [];
+      } catch(e) {}
+    },
+
+    prefillCurrent() {
+      const inst = this.infra.instances.find(i => i.id === this.est.selectedInstanceId);
+      if (!inst) return;
+      // Pre-fill proposed with current values so user only changes what they want
+      this.est.proposed.instanceClass = inst.instanceClass;
+      this.est.proposed.storageType   = inst.storageType;
+      this.est.proposed.allocatedGB   = inst.allocatedGB;
+      this.est.proposed.iops          = inst.iops;
+      this.est.proposed.throughputMBps = inst.throughputMBps;
+      this.est.proposed.replicaCount  = inst.replicaCount;
+      this.est.proposed.multiAZ       = inst.multiAZ;
+    },
+
+    _buildProposed(currentInst) {
+      // Merge proposed overrides onto current instance config
+      return {
+        instanceClass:    this.est.proposed.instanceClass  || currentInst.instanceClass,
+        engine:           currentInst.engine,
+        storageType:      this.est.proposed.storageType    || currentInst.storageType,
+        allocatedGB:      this.est.proposed.allocatedGB    ?? currentInst.allocatedGB,
+        iops:             this.est.proposed.iops           ?? currentInst.iops,
+        throughputMBps:   this.est.proposed.throughputMBps ?? currentInst.throughputMBps,
+        multiAZ:          this.est.proposed.multiAZ       !== undefined ? this.est.proposed.multiAZ : currentInst.multiAZ,
+        replicaCount:     this.est.proposed.replicaCount  ?? currentInst.replicaCount,
+        backupRetentionDays: currentInst.backupRetentionDays,
+        piEnabled:        currentInst.piEnabled,
+        piRetentionDays:  currentInst.piRetentionDays,
+      };
+    },
+
+    async runEstimate() {
+      this.est.loading = true;
+      this.est.error   = null;
+      this.est.results = [];
+      this.est.batchDeltaMonthly = 0;
+
+      try {
+        const targets = this.est.applyToAll
+          ? this.infra.instances
+          : this.infra.instances.filter(i => i.id === this.est.selectedInstanceId);
+
+        if (targets.length === 0) {
+          this.est.error = 'No instances selected. Load instances first.';
+          return;
+        }
+
+        const items = targets.map(inst => ({
+          instanceId: inst.id,
+          current:    {
+            instanceClass: inst.instanceClass, engine: inst.engine,
+            storageType: inst.storageType, allocatedGB: inst.allocatedGB,
+            iops: inst.iops, throughputMBps: inst.throughputMBps,
+            multiAZ: inst.multiAZ, replicaCount: inst.replicaCount,
+            backupRetentionDays: inst.backupRetentionDays,
+            piEnabled: inst.piEnabled, piRetentionDays: inst.piRetentionDays,
+          },
+          proposed: this._buildProposed(inst),
+        }));
+
+        const resp = await fetch('/api/infra/estimate-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profile:    this.profile,
+            region:     this.region,
+            instances:  items,
+            components: this.enabledComponents,
+          }),
+        }).then(r => r.json());
+
+        if (resp.error) {
+          this.est.error = resp.error;
+          return;
+        }
+        this.est.results          = resp.results || [];
+        this.est.batchDeltaMonthly = resp.totalDeltaMonthly || 0;
+      } catch(e) {
+        this.est.error = e.message;
+      } finally {
+        this.est.loading = false;
+      }
+    },
+
+    // ── Scenarios ─────────────────────────────────
+
+    async loadScenarios() {
+      try {
+        const data = await fetch('/api/scenarios').then(r => r.json());
+        this.scenarios.list = data.scenarios || [];
+      } catch(e) {}
+    },
+
+    async saveScenario() {
+      if (!this.est.scenarioName || this.est.results.length === 0) return;
+      try {
+        await fetch('/api/scenarios', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name:             this.est.scenarioName,
+            profile:          this.profile,
+            region:           this.region,
+            components:       this.enabledComponents,
+            totalDeltaMonthly: this.est.batchDeltaMonthly,
+            changes:          this.est.results.map(r => ({
+              instanceId: r.instanceId,
+              deltaMonthly: r.deltaMonthly,
+            })),
+          }),
+        });
+        this.est.scenarioName = '';
+        alert('Scenario saved!');
+      } catch(e) {
+        alert('Failed to save: ' + e.message);
+      }
+    },
+
+    async deleteScenario(id) {
+      if (!confirm('Delete this scenario?')) return;
+      await fetch(`/api/scenarios/${id}`, { method: 'DELETE' });
+      await this.loadScenarios();
+    },
+
+    async loadScenarioIntoEstimator(id) {
+      // Just switch to estimator for now — full restore would need more state
+      this.activeTab = 'estimator';
+    },
+
+    // ── Shared SSE reader ─────────────────────────
+
+    async _readSSE(response, onEvent) {
+      const reader  = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try { onEvent(JSON.parse(line.slice(6))); } catch(e) {}
+          }
+        }
+      }
+    },
+  };
+}
+</script>
+</body>
+</html>
