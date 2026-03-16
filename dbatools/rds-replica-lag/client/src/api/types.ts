@@ -109,3 +109,8 @@ export interface InvestigationData {
   dbaSlowQueries?: DbaSlowQuery[];
   dbaDebug?: DbaDebugInfo;
 }
+
+export interface RdsParameterGroup {
+  name: string;
+  parameters: Record<string, { value: string; source: string }>;
+}

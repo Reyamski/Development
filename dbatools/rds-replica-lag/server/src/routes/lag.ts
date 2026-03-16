@@ -137,6 +137,27 @@ router.get('/rds-config', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/lag/parameter-group?accountId=X&region=Y&parameterGroupName=Z
+ * Fetch replica-relevant MySQL parameters from the RDS parameter group.
+ */
+router.get('/parameter-group', async (req: Request, res: Response) => {
+  try {
+    const accountId = req.query.accountId as string;
+    const region = req.query.region as string;
+    const parameterGroupName = req.query.parameterGroupName as string;
+    if (!accountId || !region || !parameterGroupName) {
+      res.status(400).json({ error: 'accountId, region, and parameterGroupName are required' });
+      return;
+    }
+    const { getRdsParameterGroup } = await import('../services/aws-rds.js');
+    const paramGroup = await getRdsParameterGroup(accountId, region, parameterGroupName);
+    res.json(paramGroup);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /api/lag/aws-sso-login
  * Trigger AWS SSO login for the account/region profile used by this app.
  */

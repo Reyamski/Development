@@ -56,6 +56,12 @@ export interface RdsInstanceConfig {
   instanceClass: string;
   engine: string;
   engineVersion: string;
+  parameterGroupName: string | null;
+}
+
+export interface RdsParameterGroup {
+  name: string;
+  parameters: Record<string, { value: string; source: string }>;
 }
 
 /**
@@ -208,7 +214,7 @@ export async function getRdsInstanceConfig(
     '--db-instance-identifier', instanceId,
     '--region', region,
     '--profile', profileName,
-    '--query', 'DBInstances[0].{Iops:Iops,StorageType:StorageType,AllocatedStorage:AllocatedStorage,DBInstanceClass:DBInstanceClass,Engine:Engine,EngineVersion:EngineVersion}',
+    '--query', 'DBInstances[0].{Iops:Iops,StorageType:StorageType,AllocatedStorage:AllocatedStorage,DBInstanceClass:DBInstanceClass,Engine:Engine,EngineVersion:EngineVersion,ParamGroups:DBParameterGroups}',
     '--output', 'json',
   ], { timeout: 15_000 });
 
@@ -222,7 +228,69 @@ export async function getRdsInstanceConfig(
     instanceClass: data.DBInstanceClass || '',
     engine: data.Engine || '',
     engineVersion: data.EngineVersion || '',
+    parameterGroupName: data.ParamGroups?.[0]?.DBParameterGroupName || null,
   };
+}
+
+/**
+ * Fetch replica-relevant MySQL parameters from the RDS parameter group.
+ * Gets user-modified params + targeted engine-default params in parallel.
+ */
+export async function getRdsParameterGroup(
+  accountId: string,
+  region: string,
+  parameterGroupName: string,
+): Promise<RdsParameterGroup | null> {
+  const profileName = await getAwsProfile(accountId, region);
+  const parameters: Record<string, { value: string; source: string }> = {};
+
+  const userParams = execFileAsync('aws', [
+    'rds', 'describe-db-parameters',
+    '--db-parameter-group-name', parameterGroupName,
+    '--source', 'user',
+    '--region', region,
+    '--profile', profileName,
+    '--query', 'Parameters[].{Name:ParameterName,Value:ParameterValue,Source:Source}',
+    '--output', 'json',
+  ], { timeout: 15_000 });
+
+  const keyParams = [
+    'slave_parallel_workers', 'replica_parallel_workers',
+    'slave_parallel_type', 'replica_parallel_type',
+    'slave_preserve_commit_order', 'replica_preserve_commit_order',
+    'innodb_flush_log_at_trx_commit', 'sync_binlog',
+    'innodb_buffer_pool_size', 'innodb_io_capacity', 'innodb_io_capacity_max',
+    'binlog_transaction_dependency_tracking',
+    'slave_pending_jobs_size_max', 'replica_pending_jobs_size_max',
+    'relay_log_recovery', 'read_only', 'super_read_only',
+    'max_connections', 'innodb_read_io_threads', 'innodb_write_io_threads',
+  ];
+  const filterExpr = keyParams.map(p => `ParameterName=='${p}'`).join('||');
+  const defaultParams = execFileAsync('aws', [
+    'rds', 'describe-db-parameters',
+    '--db-parameter-group-name', parameterGroupName,
+    '--region', region,
+    '--profile', profileName,
+    '--query', `Parameters[?${filterExpr}].{Name:ParameterName,Value:ParameterValue,Source:Source}`,
+    '--output', 'json',
+  ], { timeout: 15_000 });
+
+  const [userResult, defaultResult] = await Promise.all([
+    userParams.catch(() => ({ stdout: '[]' })),
+    defaultParams.catch(() => ({ stdout: '[]' })),
+  ]);
+
+  for (const result of [defaultResult, userResult]) {
+    const params = JSON.parse(result.stdout);
+    if (!Array.isArray(params)) continue;
+    for (const p of params) {
+      if (p.Name && p.Value != null) {
+        parameters[p.Name] = { value: String(p.Value), source: p.Source || 'engine-default' };
+      }
+    }
+  }
+
+  return { name: parameterGroupName, parameters };
 }
 
 /**

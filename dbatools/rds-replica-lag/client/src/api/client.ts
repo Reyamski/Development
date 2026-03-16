@@ -90,6 +90,14 @@ export function fetchInvestigation(since?: string, until?: string): Promise<Inve
   return get(`/api/lag/investigation${query ? `?${query}` : ''}`);
 }
 
+export function fetchParameterGroup(accountId: string, region: string, parameterGroupName: string): Promise<{
+  name: string;
+  parameters: Record<string, { value: string; source: string }>;
+}> {
+  const params = new URLSearchParams({ accountId, region, parameterGroupName });
+  return get(`/api/lag/parameter-group?${params.toString()}`);
+}
+
 export function triggerAwsSsoLogin(accountId: string, region: string): Promise<{ started: boolean; profileName: string }> {
   return post('/api/lag/aws-sso-login', { accountId, region });
 }

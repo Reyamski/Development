@@ -1,5 +1,6 @@
 import { useAppStore } from './store/app-store';
 import { TeleportControls } from './components/TeleportControls';
+import { ParameterGroupPanel } from './components/ParameterGroupPanel';
 import { LagView } from './components/LagView';
 import { RootCauseAnalysis } from './components/RootCauseAnalysis';
 
@@ -28,6 +29,7 @@ export default function App() {
               Connection
             </h2>
             <TeleportControls />
+            <ParameterGroupPanel />
             <RootCauseAnalysis />
           </div>
         </aside>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/app-store';
-import { fetchReplicaStatus, fetchReplicationWorkers, fetchCloudWatchLag, fetchRdsConfig, fetchInvestigation } from '../api/client';
+import { fetchReplicaStatus, fetchReplicationWorkers, fetchCloudWatchLag, fetchRdsConfig, fetchInvestigation, fetchParameterGroup } from '../api/client';
 
 function isAwsAuthError(message: string): boolean {
   const m = message.toLowerCase();
@@ -99,7 +99,23 @@ export function useLag() {
               instanceClass: config.instanceClass,
               engine: config.engine,
               engineVersion: config.engineVersion,
+              parameterGroupName: (config as any).parameterGroupName || null,
             });
+            const pgName = (config as any).parameterGroupName;
+            if (pgName && instance) {
+              useAppStore.getState().setParameterGroupName(pgName);
+              useAppStore.getState().setParameterGroupLoading(true);
+              fetchParameterGroup(instance.accountId, instance.region, pgName)
+                .then((pg) => {
+                  useAppStore.getState().setParameterGroup(pg.parameters);
+                })
+                .catch((pgErr) => {
+                  console.warn('Failed to fetch parameter group:', pgErr.message);
+                })
+                .finally(() => {
+                  useAppStore.getState().setParameterGroupLoading(false);
+                });
+            }
           })
           .catch((err) => {
             console.warn('Failed to fetch RDS config from AWS:', err.message);

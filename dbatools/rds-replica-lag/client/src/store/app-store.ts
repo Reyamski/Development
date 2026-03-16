@@ -56,7 +56,13 @@ interface AppState {
     instanceClass: string;
     engine: string;
     engineVersion: string;
+    parameterGroupName: string | null;
   } | null;
+
+  // Parameter group
+  parameterGroup: Record<string, { value: string; source: string }> | null;
+  parameterGroupName: string | null;
+  parameterGroupLoading: boolean;
 
   // General
   error: string;
@@ -85,6 +91,9 @@ interface AppState {
   setChartHoverContext: (lagSeconds: number | null, isBreach: boolean) => void;
   setChartPinned: (pinned: boolean) => void;
   setRdsConfig: (config: AppState['rdsConfig']) => void;
+  setParameterGroup: (params: AppState['parameterGroup']) => void;
+  setParameterGroupName: (name: string | null) => void;
+  setParameterGroupLoading: (loading: boolean) => void;
   setError: (error: string) => void;
   setAwsAuthRequired: (required: boolean, message?: string) => void;
   reset: () => void;
@@ -115,6 +124,9 @@ const initialState = {
   chartHoverIsBreach: false,
   chartPinned: false,
   rdsConfig: null,
+  parameterGroup: null,
+  parameterGroupName: null,
+  parameterGroupLoading: false,
   error: '',
   awsAuthRequired: false,
   awsAuthMessage: '',
@@ -176,6 +188,9 @@ export const useAppStore = create<AppState>((set) => ({
   setChartHoverContext: (lagSeconds, isBreach) => set({ chartHoverLagSeconds: lagSeconds, chartHoverIsBreach: isBreach }),
   setChartPinned: (pinned) => set({ chartPinned: pinned }),
   setRdsConfig: (config) => set({ rdsConfig: config }),
+  setParameterGroup: (params) => set({ parameterGroup: params }),
+  setParameterGroupName: (name) => set({ parameterGroupName: name }),
+  setParameterGroupLoading: (loading) => set({ parameterGroupLoading: loading }),
   setError: (error) => set({ error }),
   setAwsAuthRequired: (required, message = '') => set({ awsAuthRequired: required, awsAuthMessage: message }),
   reset: () => set(initialState),
