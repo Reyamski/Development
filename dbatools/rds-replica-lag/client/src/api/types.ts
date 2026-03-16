@@ -110,6 +110,14 @@ export interface InvestigationData {
   dbaDebug?: DbaDebugInfo;
 }
 
+export interface SourceCloudWatchPoint {
+  timestamp: string;
+  writeIops: number;
+  readIops: number;
+  cpuUtilization: number;
+  databaseConnections: number;
+}
+
 export interface RdsParameterGroup {
   name: string;
   parameters: Record<string, { value: string; source: string }>;

@@ -137,6 +137,31 @@ router.get('/rds-config', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/lag/source-cloudwatch?accountId=X&region=Y&sourceInstanceId=Z&since=ISO&until=ISO
+ * Fetch CloudWatch metrics from the SOURCE/PRIMARY instance for correlation.
+ */
+router.get('/source-cloudwatch', async (req: Request, res: Response) => {
+  try {
+    const accountId = req.query.accountId as string;
+    const region = req.query.region as string;
+    const sourceInstanceId = req.query.sourceInstanceId as string;
+    const since = req.query.since as string;
+    const until = req.query.until as string;
+    if (!accountId || !region || !sourceInstanceId || !since || !until) {
+      res.status(400).json({ error: 'accountId, region, sourceInstanceId, since, and until are required' });
+      return;
+    }
+    const { getAwsProfile } = await import('../services/aws-rds.js');
+    const { getSourceCloudWatch } = await import('../services/cloudwatch.js');
+    const profileName = await getAwsProfile(accountId, region);
+    const data = await getSourceCloudWatch(sourceInstanceId, region, profileName, since, until);
+    res.json({ sourceCloudwatch: data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /api/lag/parameter-group?accountId=X&region=Y&parameterGroupName=Z
  * Fetch replica-relevant MySQL parameters from the RDS parameter group.
  */

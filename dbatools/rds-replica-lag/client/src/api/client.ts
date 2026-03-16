@@ -1,4 +1,4 @@
-import type { TeleportInstance, TeleportStatus, ConnectionResult, ReplicaStatus, ReplicationWorker, CloudWatchLagPoint, InvestigationData } from './types';
+import type { TeleportInstance, TeleportStatus, ConnectionResult, ReplicaStatus, ReplicationWorker, CloudWatchLagPoint, InvestigationData, SourceCloudWatchPoint } from './types';
 
 async function post<T>(url: string, body: Record<string, unknown>): Promise<T> {
   const res = await fetch(url, {
@@ -88,6 +88,13 @@ export function fetchInvestigation(since?: string, until?: string): Promise<Inve
   if (until) params.set('until', until);
   const query = params.toString();
   return get(`/api/lag/investigation${query ? `?${query}` : ''}`);
+}
+
+export function fetchSourceCloudWatch(
+  accountId: string, region: string, sourceInstanceId: string, since: string, until: string,
+): Promise<{ sourceCloudwatch: SourceCloudWatchPoint[] }> {
+  const params = new URLSearchParams({ accountId, region, sourceInstanceId, since, until });
+  return get(`/api/lag/source-cloudwatch?${params.toString()}`);
 }
 
 export function fetchParameterGroup(accountId: string, region: string, parameterGroupName: string): Promise<{

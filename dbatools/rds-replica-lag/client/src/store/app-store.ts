@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { TeleportInstance, TeleportStatus, ConnectionResult, ReplicaStatus, ReplicationWorker, CloudWatchLagPoint, TimeRange, InvestigationData } from '../api/types';
+import type { TeleportInstance, TeleportStatus, ConnectionResult, ReplicaStatus, ReplicationWorker, CloudWatchLagPoint, TimeRange, InvestigationData, SourceCloudWatchPoint } from '../api/types';
 
 function makeTimeRange(label: string, minutes: number): TimeRange {
   const now = new Date();
@@ -59,6 +59,10 @@ interface AppState {
     parameterGroupName: string | null;
   } | null;
 
+  // Source (primary) correlation
+  sourceInstanceId: string | null;
+  sourceCloudwatchData: SourceCloudWatchPoint[];
+
   // Parameter group
   parameterGroup: Record<string, { value: string; source: string }> | null;
   parameterGroupName: string | null;
@@ -91,6 +95,8 @@ interface AppState {
   setChartHoverContext: (lagSeconds: number | null, isBreach: boolean) => void;
   setChartPinned: (pinned: boolean) => void;
   setRdsConfig: (config: AppState['rdsConfig']) => void;
+  setSourceInstanceId: (id: string | null) => void;
+  setSourceCloudwatchData: (data: SourceCloudWatchPoint[]) => void;
   setParameterGroup: (params: AppState['parameterGroup']) => void;
   setParameterGroupName: (name: string | null) => void;
   setParameterGroupLoading: (loading: boolean) => void;
@@ -124,6 +130,8 @@ const initialState = {
   chartHoverIsBreach: false,
   chartPinned: false,
   rdsConfig: null,
+  sourceInstanceId: null,
+  sourceCloudwatchData: [],
   parameterGroup: null,
   parameterGroupName: null,
   parameterGroupLoading: false,
@@ -188,6 +196,8 @@ export const useAppStore = create<AppState>((set) => ({
   setChartHoverContext: (lagSeconds, isBreach) => set({ chartHoverLagSeconds: lagSeconds, chartHoverIsBreach: isBreach }),
   setChartPinned: (pinned) => set({ chartPinned: pinned }),
   setRdsConfig: (config) => set({ rdsConfig: config }),
+  setSourceInstanceId: (id) => set({ sourceInstanceId: id }),
+  setSourceCloudwatchData: (data) => set({ sourceCloudwatchData: data }),
   setParameterGroup: (params) => set({ parameterGroup: params }),
   setParameterGroupName: (name) => set({ parameterGroupName: name }),
   setParameterGroupLoading: (loading) => set({ parameterGroupLoading: loading }),

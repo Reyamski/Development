@@ -17,8 +17,15 @@ function formatTimeLabel(iso: string, rangeMins: number, utc: boolean): string {
   return d.toLocaleDateString([], { ...opts, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+function formatIops(n: number): string {
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return Math.round(n).toString();
+}
+
 export function LagChart({ chartHeight = 200 }: { chartHeight?: number }) {
   const cloudwatchData = useAppStore((s) => s.cloudwatchData);
+  const sourceCloudwatchData = useAppStore((s) => s.sourceCloudwatchData);
+  const sourceInstanceId = useAppStore((s) => s.sourceInstanceId);
   const timeRange = useAppStore((s) => s.timeRange);
   const setTimeRange = useAppStore((s) => s.setTimeRange);
   const lagLoading = useAppStore((s) => s.lagLoading);
@@ -222,6 +229,44 @@ export function LagChart({ chartHeight = 200 }: { chartHeight?: number }) {
         {/* Lag line */}
         <path d={lagPath} fill="none" stroke="#94a3b8" strokeWidth={1.5} />
 
+        {/* Source WriteIOPS overlay (secondary Y-axis) */}
+        {sourceCloudwatchData.length > 0 && (() => {
+          const srcMax = Math.max(...sourceCloudwatchData.map(p => p.writeIops), 1) * 1.1;
+          const srcYScale = (v: number) => PADDING.top + chartH - (v / srcMax) * chartH;
+          const srcTimeMap = new Map(sourceCloudwatchData.map(p => [p.timestamp.slice(0, 16), p]));
+
+          const srcPoints: { x: number; y: number }[] = [];
+          for (let i = 0; i < data.length; i++) {
+            const key = data[i].timestamp.slice(0, 16);
+            const sp = srcTimeMap.get(key);
+            if (sp) srcPoints.push({ x: xScale(i), y: srcYScale(sp.writeIops) });
+          }
+
+          if (srcPoints.length < 2) {
+            const srcXScale = (i: number) => PADDING.left + (i / Math.max(sourceCloudwatchData.length - 1, 1)) * chartW;
+            sourceCloudwatchData.forEach((p, i) => {
+              srcPoints.push({ x: srcXScale(i), y: srcYScale(p.writeIops) });
+            });
+          }
+
+          const srcPath = srcPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+          const srcTicks = [0, srcMax * 0.25, srcMax * 0.5, srcMax * 0.75, srcMax];
+
+          return (
+            <>
+              <path d={srcPath} fill="none" stroke="#f59e0b" strokeWidth={1.2} opacity={0.7} />
+              {srcTicks.map((v, i) => (
+                <text key={`src-y-${i}`} x={width - PADDING.right + 6} y={srcYScale(v) + 3} textAnchor="start" fill="#f59e0b" fontSize={8} opacity={0.6}>
+                  {formatIops(v)}
+                </text>
+              ))}
+              <text x={width - 4} y={PADDING.top + chartH / 2} textAnchor="middle" fill="#f59e0b" fontSize={8} opacity={0.6} transform={`rotate(90, ${width - 4}, ${PADDING.top + chartH / 2})`}>
+                Source WriteIOPS
+              </text>
+            </>
+          );
+        })()}
+
         {/* Threshold line */}
         {lagThreshold > 0 && (
           <>
@@ -257,19 +302,25 @@ export function LagChart({ chartHeight = 200 }: { chartHeight?: number }) {
         )}
       </svg>
 
-      {/* Legend + threshold config */}
+      {/* Legend */}
       <div className="flex items-center gap-4 px-4 mt-1">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-0.5 bg-slate-400 rounded" />
           <span className="text-[10px] text-slate-500">ReplicaLag</span>
         </div>
+        {sourceCloudwatchData.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-0.5 bg-amber-500 rounded" style={{ opacity: 0.7 }} />
+            <span className="text-[10px] text-slate-500">Source WriteIOPS</span>
+          </div>
+        )}
         {lagThreshold > 0 && (
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-0.5 rounded" style={{ borderTop: '1.5px dashed #ef4444' }} />
             <span className="text-[10px] text-slate-500">SLA Threshold</span>
           </div>
         )}
-        <span className="text-[10px] text-slate-600 ml-auto">Drag to zoom</span>
+        <span className="text-[10px] text-slate-600 ml-auto">{sourceInstanceId ? `Source: ${sourceInstanceId}` : 'Drag to zoom'}</span>
       </div>
 
       {/* Breach summary */}
@@ -285,19 +336,29 @@ export function LagChart({ chartHeight = 200 }: { chartHeight?: number }) {
       )}
 
       {/* Hover tooltip */}
-      {hoveredPoint && dragStart === null && (
-        <div className={`absolute top-2 right-6 border rounded px-2 py-1.5 text-[10px] text-slate-300 space-y-0.5 pointer-events-none ${
-          lagThreshold > 0 && hoveredPoint.lagSeconds > lagThreshold
-            ? 'bg-red-950 border-red-700'
-            : 'bg-slate-800 border-slate-700'
-        }`}>
-          <div className="text-slate-500">{formatTimeLabel(hoveredPoint.timestamp, rangeMins, showUtc)}</div>
-          <div>Lag: <span className="text-slate-200 font-medium">{formatLag(hoveredPoint.lagSeconds)}</span></div>
-          {lagThreshold > 0 && hoveredPoint.lagSeconds > lagThreshold && (
-            <div className="text-red-400 font-bold">BREACH ({((hoveredPoint.lagSeconds / lagThreshold) * 100).toFixed(0)}% of limit)</div>
-          )}
-        </div>
-      )}
+      {hoveredPoint && dragStart === null && (() => {
+        const hoverKey = hoveredPoint.timestamp.slice(0, 16);
+        const srcPoint = sourceCloudwatchData.find(p => p.timestamp.slice(0, 16) === hoverKey);
+        return (
+          <div className={`absolute top-2 right-6 border rounded px-2 py-1.5 text-[10px] text-slate-300 space-y-0.5 pointer-events-none ${
+            lagThreshold > 0 && hoveredPoint.lagSeconds > lagThreshold
+              ? 'bg-red-950 border-red-700'
+              : 'bg-slate-800 border-slate-700'
+          }`}>
+            <div className="text-slate-500">{formatTimeLabel(hoveredPoint.timestamp, rangeMins, showUtc)}</div>
+            <div>Lag: <span className="text-slate-200 font-medium">{formatLag(hoveredPoint.lagSeconds)}</span></div>
+            {srcPoint && (
+              <>
+                <div>Source Write: <span className="text-amber-400 font-medium">{formatIops(srcPoint.writeIops)} IOPS</span></div>
+                <div>Source CPU: <span className="text-slate-200 font-medium">{srcPoint.cpuUtilization.toFixed(1)}%</span></div>
+              </>
+            )}
+            {lagThreshold > 0 && hoveredPoint.lagSeconds > lagThreshold && (
+              <div className="text-red-400 font-bold">BREACH ({((hoveredPoint.lagSeconds / lagThreshold) * 100).toFixed(0)}% of limit)</div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

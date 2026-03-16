@@ -1,5 +1,5 @@
 import { useAppStore } from '../store/app-store';
-import type { ReplicaStatus, ReplicationWorker, InvestigationData, CloudWatchLagPoint, TimeRange, DbaSlowQuery } from '../api/types';
+import type { ReplicaStatus, ReplicationWorker, InvestigationData, CloudWatchLagPoint, TimeRange, DbaSlowQuery, SourceCloudWatchPoint } from '../api/types';
 
 function formatLag(seconds: number | null): string {
   if (seconds === null) return 'unknown';
@@ -144,6 +144,11 @@ function SeverityBadge({ severity }: { severity: 'critical' | 'warning' | 'ok' }
   );
 }
 
+function formatIops(n: number): string {
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return Math.round(n).toString();
+}
+
 function generateNarrative(
   replicaStatus: ReplicaStatus,
   investigationData: InvestigationData | null,
@@ -151,6 +156,7 @@ function generateNarrative(
   lagThreshold: number,
   cloudwatchData: CloudWatchLagPoint[],
   timeRange: TimeRange,
+  sourceCloudwatchData: SourceCloudWatchPoint[],
 ): string[] {
   const dbaQueries = investigationData?.dbaSlowQueries ?? [];
   const lines: string[] = [];
@@ -277,7 +283,26 @@ function generateNarrative(
       }
     }
 
-    if (!hasSlowAppliers && !hasDbaQueries) {
+    // Source (primary) correlation
+    if (sourceCloudwatchData.length > 0) {
+      const avgWriteIops = sourceCloudwatchData.reduce((s, p) => s + p.writeIops, 0) / sourceCloudwatchData.length;
+      const peakWriteIops = Math.max(...sourceCloudwatchData.map(p => p.writeIops));
+      const avgCpu = sourceCloudwatchData.reduce((s, p) => s + p.cpuUtilization, 0) / sourceCloudwatchData.length;
+
+      if (peakWriteIops > avgWriteIops * 2 && peakWriteIops > 100) {
+        lines.push('');
+        lines.push(`⚡ Source primary write spike detected — peak ${formatIops(peakWriteIops)} IOPS (avg ${formatIops(avgWriteIops)}), ${(peakWriteIops / avgWriteIops).toFixed(1)}x surge.`);
+        lines.push('→ High write volume on the primary directly increases replication apply backlog.');
+      } else if (avgWriteIops > 500) {
+        lines.push('');
+        lines.push(`Source primary: sustained ${formatIops(avgWriteIops)} avg WriteIOPS during this period.`);
+      }
+      if (avgCpu > 80) {
+        lines.push(`Source CPU at ${avgCpu.toFixed(0)}% — primary is under heavy load which may delay binlog generation.`);
+      }
+    }
+
+    if (!hasSlowAppliers && !hasDbaQueries && sourceCloudwatchData.length === 0) {
       lines.push('');
       lines.push('No slow queries captured — performance_schema buffer may have evicted older statements.');
       lines.push('Drag the chart to zoom into a spike quickly after it happens for better capture.');
@@ -300,6 +325,7 @@ export function RootCauseAnalysis() {
   const investigationData = useAppStore((s) => s.investigationData);
   const lagThreshold = useAppStore((s) => s.lagThreshold);
   const cloudwatchData = useAppStore((s) => s.cloudwatchData);
+  const sourceCloudwatchData = useAppStore((s) => s.sourceCloudwatchData);
   const timeRange = useAppStore((s) => s.timeRange);
   const chartHoverIsBreach = useAppStore((s) => s.chartHoverIsBreach);
   const chartPinned = useAppStore((s) => s.chartPinned);
@@ -317,8 +343,7 @@ export function RootCauseAnalysis() {
   const hasErrors = !!(replicaStatus.lastSqlError || replicaStatus.lastIoError);
   const hasIssues = isLagging || ioDown || sqlDown || hasErrors;
 
-  // Always compute narrative so we show breach info for any range (preset or custom)
-  const narrativeLines = generateNarrative(replicaStatus, investigationData, replicationWorkers, lagThreshold, cloudwatchData, timeRange);
+  const narrativeLines = generateNarrative(replicaStatus, investigationData, replicationWorkers, lagThreshold, cloudwatchData, timeRange, sourceCloudwatchData);
 
   return (
     <div className="rounded bg-slate-800 border border-slate-700 px-3 py-3 space-y-3">

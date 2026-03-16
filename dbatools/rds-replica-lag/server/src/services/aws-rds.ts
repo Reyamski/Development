@@ -57,6 +57,7 @@ export interface RdsInstanceConfig {
   engine: string;
   engineVersion: string;
   parameterGroupName: string | null;
+  readReplicaSource: string | null;
 }
 
 export interface RdsParameterGroup {
@@ -214,7 +215,7 @@ export async function getRdsInstanceConfig(
     '--db-instance-identifier', instanceId,
     '--region', region,
     '--profile', profileName,
-    '--query', 'DBInstances[0].{Iops:Iops,StorageType:StorageType,AllocatedStorage:AllocatedStorage,DBInstanceClass:DBInstanceClass,Engine:Engine,EngineVersion:EngineVersion,ParamGroups:DBParameterGroups}',
+    '--query', 'DBInstances[0].{Iops:Iops,StorageType:StorageType,AllocatedStorage:AllocatedStorage,DBInstanceClass:DBInstanceClass,Engine:Engine,EngineVersion:EngineVersion,ParamGroups:DBParameterGroups,ReadReplicaSource:ReadReplicaSourceDBInstanceIdentifier}',
     '--output', 'json',
   ], { timeout: 15_000 });
 
@@ -229,6 +230,7 @@ export async function getRdsInstanceConfig(
     engine: data.Engine || '',
     engineVersion: data.EngineVersion || '',
     parameterGroupName: data.ParamGroups?.[0]?.DBParameterGroupName || null,
+    readReplicaSource: data.ReadReplicaSource || null,
   };
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/app-store';
-import { fetchReplicaStatus, fetchReplicationWorkers, fetchCloudWatchLag, fetchRdsConfig, fetchInvestigation, fetchParameterGroup } from '../api/client';
+import { fetchReplicaStatus, fetchReplicationWorkers, fetchCloudWatchLag, fetchRdsConfig, fetchInvestigation, fetchParameterGroup, fetchSourceCloudWatch } from '../api/client';
 
 function isAwsAuthError(message: string): boolean {
   const m = message.toLowerCase();
@@ -38,34 +38,41 @@ export function useLag() {
         ? fetchCloudWatchLag(instance!.accountId, instance!.region, instance!.instanceId, timeRange.since, timeRange.until)
         : Promise.resolve(null);
 
+      const sourceId = useAppStore.getState().sourceInstanceId;
+      const srcCwPromise = hasAws && sourceId
+        ? fetchSourceCloudWatch(instance!.accountId, instance!.region, sourceId, timeRange.since, timeRange.until).catch(() => null)
+        : Promise.resolve(null);
+
       const isInvestigating = timeRange.label === 'Custom';
 
       if (isInvestigating) {
-        // Investigation mode: fetch CloudWatch + replica status + workers + investigation data
-        const [cwRes, statusRes, workersRes, investigationRes] = await Promise.all([
+        const [cwRes, statusRes, workersRes, investigationRes, srcCwRes] = await Promise.all([
           cwPromise,
           fetchReplicaStatus(),
           fetchReplicationWorkers(),
           fetchInvestigation(timeRange.since, timeRange.until).catch(() => null),
+          srcCwPromise,
         ]);
 
         if (thisRequest !== requestId.current) return;
 
         if (cwRes) useAppStore.getState().setCloudwatchData(cwRes.cloudwatch);
+        if (srcCwRes) useAppStore.getState().setSourceCloudwatchData(srcCwRes.sourceCloudwatch);
         useAppStore.getState().setReplicaStatus(statusRes.status);
         useAppStore.getState().setReplicationWorkers(workersRes.workers);
         useAppStore.getState().setInvestigationData(investigationRes);
       } else {
-        // Overview mode: CloudWatch + replica status + investigation (for lag cause + slow query)
-        const [cwRes, statusRes, investigationRes] = await Promise.all([
+        const [cwRes, statusRes, investigationRes, srcCwRes] = await Promise.all([
           cwPromise,
           fetchReplicaStatus(),
           fetchInvestigation(timeRange.since, timeRange.until).catch(() => null),
+          srcCwPromise,
         ]);
 
         if (thisRequest !== requestId.current) return;
 
         if (cwRes) useAppStore.getState().setCloudwatchData(cwRes.cloudwatch);
+        if (srcCwRes) useAppStore.getState().setSourceCloudwatchData(srcCwRes.sourceCloudwatch);
         useAppStore.getState().setReplicaStatus(statusRes.status);
         useAppStore.getState().setReplicationWorkers([]);
         useAppStore.getState().setInvestigationData(investigationRes);
@@ -101,6 +108,10 @@ export function useLag() {
               engineVersion: config.engineVersion,
               parameterGroupName: (config as any).parameterGroupName || null,
             });
+            const sourceId = (config as any).readReplicaSource || null;
+            if (sourceId) {
+              useAppStore.getState().setSourceInstanceId(sourceId);
+            }
             const pgName = (config as any).parameterGroupName;
             if (pgName && instance) {
               useAppStore.getState().setParameterGroupName(pgName);
