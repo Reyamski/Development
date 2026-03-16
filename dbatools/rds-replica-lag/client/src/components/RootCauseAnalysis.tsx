@@ -1,11 +1,134 @@
 import { useAppStore } from '../store/app-store';
-import type { ReplicaStatus, ReplicationWorker, InvestigationData, CloudWatchLagPoint, TimeRange } from '../api/types';
+import type { ReplicaStatus, ReplicationWorker, InvestigationData, CloudWatchLagPoint, TimeRange, DbaSlowQuery } from '../api/types';
 
 function formatLag(seconds: number | null): string {
   if (seconds === null) return 'unknown';
   if (seconds >= 3600) return (seconds / 3600).toFixed(1) + 'h';
   if (seconds >= 60) return (seconds / 60).toFixed(1) + 'm';
   return seconds.toFixed(0) + 's';
+}
+
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  return String(n);
+}
+
+function extractTable(sql: string): string {
+  const m = sql.match(/(?:FROM|JOIN|UPDATE|INTO|TABLE)\s+`?(\w+)`?/i);
+  return m ? m[1] : '';
+}
+
+function suggestIndex(sql: string, table: string): string | null {
+  if (!sql || !table) return null;
+  const cols: string[] = [];
+  const seen = new Set<string>();
+  const add = (col: string) => {
+    const clean = col.replace(/[`'"]/g, '').replace(/^\w+\./, '').toLowerCase();
+    if (clean && !seen.has(clean) && clean !== '*' && !/^\d/.test(clean)) {
+      seen.add(clean);
+      cols.push(clean);
+    }
+  };
+
+  const whereCols = sql.matchAll(/(?:WHERE|AND|OR)\s+`?(?:\w+\.)?`?(\w+)`?\s*(?:=|>|<|IN|BETWEEN|LIKE|IS)/gi);
+  for (const m of whereCols) if (m[1]) add(m[1]);
+  const joinCols = sql.matchAll(/ON\s+`?(?:\w+\.)?`?(\w+)`?\s*=\s*`?(?:\w+\.)?`?(\w+)`?/gi);
+  for (const m of joinCols) { if (m[1]) add(m[1]); if (m[2]) add(m[2]); }
+  const orderCols = sql.matchAll(/ORDER\s+BY\s+`?(?:\w+\.)?`?(\w+)`?/gi);
+  for (const m of orderCols) if (m[1]) add(m[1]);
+
+  if (cols.length === 0) return null;
+  return `ALTER TABLE \`${table}\` ADD INDEX idx_${table}_${cols.slice(0, 3).join('_')} (${cols.slice(0, 4).map(c => `\`${c}\``).join(', ')})`;
+}
+
+interface QueryRecommendation {
+  query: DbaSlowQuery;
+  impactScore: number;
+  issues: string[];
+  suggestions: string[];
+  indexHint: string | null;
+}
+
+function analyzeQuery(q: DbaSlowQuery): QueryRecommendation {
+  const issues: string[] = [];
+  const suggestions: string[] = [];
+  const sql = q.querySampleText || q.digestText;
+  const table = extractTable(sql);
+
+  let impactScore = q.maxDurationSeconds * 10;
+  impactScore += q.countStar * q.avgDurationSeconds;
+
+  if (q.sumNoIndexUsed > 0) {
+    issues.push(`Full table scan — ${q.sumNoIndexUsed} execution${q.sumNoIndexUsed > 1 ? 's' : ''} without index`);
+    suggestions.push('Add an index to avoid full table scans on the replica');
+    impactScore *= 2;
+  }
+
+  const avgRowsPerExec = q.countStar > 0 ? q.sumRowsExamined / q.countStar : 0;
+  if (avgRowsPerExec > 10000) {
+    issues.push(`High row scan — ${formatNumber(avgRowsPerExec)} rows examined per execution`);
+    suggestions.push('Consider adding a covering index or limiting the result set');
+  }
+
+  if (q.sumRowsAffected > 0 && q.countStar > 0) {
+    const avgAffected = q.sumRowsAffected / q.countStar;
+    if (avgAffected > 1000) {
+      issues.push(`Bulk write — avg ${formatNumber(avgAffected)} rows affected per execution`);
+      suggestions.push('Break large writes into smaller batches on the source to reduce applier stalls');
+    }
+  }
+
+  if (q.maxDurationSeconds > 10) {
+    issues.push(`Slow execution — max ${q.maxDurationSeconds}s`);
+    if (q.avgDurationSeconds > 5) {
+      suggestions.push('This query consistently takes >5s — optimize it or schedule during low traffic');
+    }
+  }
+
+  const indexHint = q.sumNoIndexUsed > 0 ? suggestIndex(sql, table) : null;
+
+  return { query: q, impactScore, issues, suggestions, indexHint };
+}
+
+function analyzeWorkers(workers: ReplicationWorker[]): {
+  total: number;
+  active: number;
+  idle: number;
+  errored: number;
+  stalledIds: number[];
+  utilizationPct: number;
+  recommendation: string | null;
+} {
+  const total = workers.length;
+  if (total === 0) return { total: 0, active: 0, idle: 0, errored: 0, stalledIds: [], utilizationPct: 0, recommendation: null };
+
+  let active = 0;
+  let errored = 0;
+  const stalledIds: number[] = [];
+
+  for (const w of workers) {
+    if (w.lastErrorNumber > 0) { errored++; continue; }
+    if (w.applyingTransaction) {
+      active++;
+      if (w.applyingTransactionStartApplyTimestamp) {
+        const elapsed = (Date.now() - new Date(w.applyingTransactionStartApplyTimestamp).getTime()) / 1000;
+        if (elapsed > 30) stalledIds.push(w.workerId);
+      }
+    }
+  }
+
+  const idle = total - active - errored;
+  const utilizationPct = total > 0 ? Math.round((active / total) * 100) : 0;
+
+  let recommendation: string | null = null;
+  if (utilizationPct >= 90) {
+    recommendation = `All ${total} workers are busy — increase slave_parallel_workers (try ${total * 2}) to reduce applier bottleneck`;
+  } else if (utilizationPct <= 20 && total <= 4) {
+    recommendation = `Only ${active}/${total} workers active — if lag persists, the bottleneck may be single-threaded DDL or large transactions, not worker count`;
+  }
+
+  return { total, active, idle, errored, stalledIds, utilizationPct, recommendation };
 }
 
 function SeverityBadge({ severity }: { severity: 'critical' | 'warning' | 'ok' }) {
@@ -113,28 +236,52 @@ function generateNarrative(
     }
   }
 
-  // 8. When we have breaches but no specific cause — add possible causes and next steps
+  // 8. When we have breaches — data-driven analysis instead of generic bullets
   if (addedBreachMessage) {
     const hasSlowAppliers = !!(investigationData?.slowAppliers?.length);
     const hasDbaQueries = dbaQueries.length > 0;
-    if (!hasSlowAppliers && !hasDbaQueries) {
-      lines.push('No slow query captured in recent history — performance_schema buffer may have evicted older statements. Check DBA schema section below (if available) or drag to zoom and investigate quickly after a spike.');
-    } else if (hasDbaQueries) {
-      const top = dbaQueries[0];
-      lines.push(`dba schema shows ${dbaQueries.length} slow queries — top: ${top.schemaName} max ${top.maxDurationSeconds}s (${top.countStar} execs). See DBA Schema section below.`);
+    const workerAnalysis = analyzeWorkers(replicationWorkers);
+
+    if (hasDbaQueries) {
+      lines.push('');
+      lines.push('Queries contributing to lag:');
+      const topQueries = dbaQueries.slice(0, 3);
+      for (const q of topQueries) {
+        const table = extractTable(q.querySampleText || q.digestText);
+        const avgRows = q.countStar > 0 ? q.sumRowsExamined / q.countStar : 0;
+        let detail = `• ${q.schemaName}${table ? '.' + table : ''} — max ${q.maxDurationSeconds}s, ${q.countStar} execs`;
+        if (avgRows > 1000) detail += `, ${formatNumber(avgRows)} rows/exec`;
+        if (q.sumNoIndexUsed > 0) detail += ' ⚠ NO INDEX';
+        lines.push(detail);
+      }
+      if (dbaQueries.length > 3) {
+        lines.push(`  ...and ${dbaQueries.length - 3} more (see details below)`);
+      }
     }
-    lines.push('');
-    lines.push('Possible causes:');
-    lines.push('• Slow query on replica — a statement took too long to apply (check Slow Statements below if in investigation mode)');
-    lines.push('• High write load on source — many transactions queued faster than replica can apply');
-    lines.push('• Insufficient slave_parallel_workers — replica cannot keep up with parallel writes');
-    lines.push('• Network or I/O bottleneck — relay log read/write delays');
-    lines.push('');
-    lines.push('What to check:');
-    lines.push('• Drag the chart to zoom into a spike → enables worker-level analysis and recent slow queries');
-    lines.push('• Review source write patterns — batch size, transaction volume');
-    lines.push('• Check slave_parallel_workers (default often 4–8; increase if replica has CPU headroom)');
-    lines.push('• Enable performance_schema for replication (if not already) to capture slow applier history');
+
+    if (hasSlowAppliers && !hasDbaQueries) {
+      lines.push('');
+      const topApplier = investigationData!.slowAppliers[0];
+      const loc = [topApplier.schema, topApplier.table].filter(Boolean).join('.');
+      lines.push(`Slow replication applier detected${loc ? ` on \`${loc}\`` : ''} — took ${topApplier.durationSeconds}s${topApplier.rowsAffected > 0 ? `, ${formatNumber(topApplier.rowsAffected)} rows affected` : ''}.`);
+    }
+
+    if (workerAnalysis.total > 0) {
+      lines.push('');
+      lines.push(`Workers: ${workerAnalysis.active} active / ${workerAnalysis.idle} idle / ${workerAnalysis.total} total (${workerAnalysis.utilizationPct}% utilization)`);
+      if (workerAnalysis.stalledIds.length > 0) {
+        lines.push(`⚠ Worker${workerAnalysis.stalledIds.length > 1 ? 's' : ''} ${workerAnalysis.stalledIds.join(', ')} stalled >30s on a single transaction`);
+      }
+      if (workerAnalysis.recommendation) {
+        lines.push(`→ ${workerAnalysis.recommendation}`);
+      }
+    }
+
+    if (!hasSlowAppliers && !hasDbaQueries) {
+      lines.push('');
+      lines.push('No slow queries captured — performance_schema buffer may have evicted older statements.');
+      lines.push('Drag the chart to zoom into a spike quickly after it happens for better capture.');
+    }
   }
 
   // 9. Healthy (only when no breaches and no other issues)
@@ -328,58 +475,98 @@ export function RootCauseAnalysis() {
       {/* ===== Investigation Mode Panels ===== */}
       {isInvestigating && (
         <>
-          {/* Parallel workers */}
-          {replicationWorkers.length > 0 && (
-            <div className="space-y-1.5 border-t border-slate-700 pt-2">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
-                Parallel Workers ({replicationWorkers.length})
-              </div>
-              {replicationWorkers.map(w => (
-                <div key={w.workerId} className={`rounded border px-2.5 py-2 text-[10px] space-y-0.5 ${
-                  w.lastErrorNumber > 0
-                    ? 'border-red-800 bg-red-950/30'
-                    : w.serviceState === 'ON'
-                      ? 'border-slate-700 bg-slate-800/50'
-                      : 'border-slate-700 bg-slate-800/30'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400 font-medium">Worker {w.workerId}</span>
-                    <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${
-                      w.lastErrorNumber > 0 ? 'bg-red-600 text-white' :
-                      w.serviceState === 'ON' ? 'bg-emerald-700 text-white' : 'bg-slate-600 text-slate-200'
-                    }`}>
-                      {w.lastErrorNumber > 0 ? 'ERROR' : w.serviceState}
-                    </span>
+          {/* Parallel workers with utilization analysis */}
+          {replicationWorkers.length > 0 && (() => {
+            const wa = analyzeWorkers(replicationWorkers);
+            return (
+              <div className="space-y-1.5 border-t border-slate-700 pt-2">
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
+                  Parallel Worker Activity
+                </div>
+
+                {/* Utilization bar */}
+                <div className="rounded border border-slate-700 bg-slate-900/60 px-2.5 py-2 space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-slate-400">Utilization</span>
+                    <span className={`font-bold ${
+                      wa.utilizationPct >= 90 ? 'text-red-400' :
+                      wa.utilizationPct >= 50 ? 'text-amber-400' : 'text-emerald-400'
+                    }`}>{wa.utilizationPct}%</span>
                   </div>
-                  {w.applyingTransaction && (
-                    <div className="text-slate-500">
-                      Applying: <span className="text-slate-400 font-mono text-[9px]">{w.applyingTransaction}</span>
+                  <div className="h-2 rounded bg-slate-700 overflow-hidden flex">
+                    {wa.active > 0 && (
+                      <div className="h-full bg-emerald-500" style={{ width: `${(wa.active / wa.total) * 100}%` }} />
+                    )}
+                    {wa.errored > 0 && (
+                      <div className="h-full bg-red-500" style={{ width: `${(wa.errored / wa.total) * 100}%` }} />
+                    )}
+                  </div>
+                  <div className="flex gap-3 text-[9px] text-slate-500">
+                    <span><span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1" />{wa.active} active</span>
+                    <span><span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-600 mr-1" />{wa.idle} idle</span>
+                    {wa.errored > 0 && <span><span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 mr-1" />{wa.errored} error</span>}
+                  </div>
+                  {wa.recommendation && (
+                    <div className={`text-[10px] mt-1 px-2 py-1.5 rounded ${
+                      wa.utilizationPct >= 90
+                        ? 'bg-red-950/30 border border-red-800 text-red-300'
+                        : 'bg-slate-800 border border-slate-600 text-slate-300'
+                    }`}>
+                      💡 {wa.recommendation}
                     </div>
-                  )}
-                  {w.applyingTransactionStartApplyTimestamp && (() => {
-                    const elapsed = Math.round(
-                      (Date.now() - new Date(w.applyingTransactionStartApplyTimestamp).getTime()) / 1000,
-                    );
-                    return elapsed > 2 ? (
-                      <div className={`text-[9px] font-medium ${
-                        elapsed > 30 ? 'text-red-400' : elapsed > 10 ? 'text-amber-400' : 'text-slate-500'
-                      }`}>
-                        In progress: {formatLag(elapsed)}
-                      </div>
-                    ) : null;
-                  })()}
-                  {w.lastAppliedTransaction && (
-                    <div className="text-slate-600">
-                      Last: <span className="font-mono text-[9px]">{w.lastAppliedTransaction}</span>
-                    </div>
-                  )}
-                  {w.lastErrorMessage && (
-                    <div className="text-red-400 break-all">{w.lastErrorMessage}</div>
                   )}
                 </div>
-              ))}
-            </div>
-          )}
+
+                {/* Individual workers */}
+                {replicationWorkers.map(w => (
+                  <div key={w.workerId} className={`rounded border px-2.5 py-2 text-[10px] space-y-0.5 ${
+                    w.lastErrorNumber > 0
+                      ? 'border-red-800 bg-red-950/30'
+                      : w.applyingTransaction
+                        ? 'border-emerald-800/50 bg-emerald-950/10'
+                        : 'border-slate-700 bg-slate-800/30'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 font-medium">Worker {w.workerId}</span>
+                      <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${
+                        w.lastErrorNumber > 0 ? 'bg-red-600 text-white' :
+                        w.applyingTransaction ? 'bg-emerald-700 text-white' :
+                        w.serviceState === 'ON' ? 'bg-slate-600 text-slate-200' : 'bg-slate-700 text-slate-400'
+                      }`}>
+                        {w.lastErrorNumber > 0 ? 'ERROR' : w.applyingTransaction ? 'APPLYING' : w.serviceState === 'ON' ? 'IDLE' : w.serviceState}
+                      </span>
+                    </div>
+                    {w.applyingTransaction && (
+                      <div className="text-slate-500">
+                        Applying: <span className="text-slate-400 font-mono text-[9px]">{w.applyingTransaction}</span>
+                      </div>
+                    )}
+                    {w.applyingTransactionStartApplyTimestamp && (() => {
+                      const elapsed = Math.round(
+                        (Date.now() - new Date(w.applyingTransactionStartApplyTimestamp).getTime()) / 1000,
+                      );
+                      return elapsed > 2 ? (
+                        <div className={`text-[9px] font-medium ${
+                          elapsed > 30 ? 'text-red-400' : elapsed > 10 ? 'text-amber-400' : 'text-slate-500'
+                        }`}>
+                          In progress: {formatLag(elapsed)}
+                          {elapsed > 30 && ' — likely blocking replication'}
+                        </div>
+                      ) : null;
+                    })()}
+                    {w.lastAppliedTransaction && !w.applyingTransaction && (
+                      <div className="text-slate-600">
+                        Last: <span className="font-mono text-[9px]">{w.lastAppliedTransaction}</span>
+                      </div>
+                    )}
+                    {w.lastErrorMessage && (
+                      <div className="text-red-400 break-all">{w.lastErrorMessage}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
 
         </>
       )}
@@ -481,38 +668,112 @@ export function RootCauseAnalysis() {
             </div>
           )}
 
-          {/* DBA schema — long-running queries from dba.events_statements_summary_by_digest_history */}
-          {investigationData?.dbaSlowQueries && investigationData.dbaSlowQueries.length > 0 && (
-            <div className="border-t border-slate-700 pt-2 space-y-1">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
-                DBA Schema — Long Running Queries
-              </div>
-              <div className="text-[9px] text-slate-600 mb-1">
-                From dba.events_statements_summary_by_digest_history (latest snapshot)
-              </div>
-              {investigationData.dbaSlowQueries.map((q, i) => (
-                <div key={i} className="rounded border border-slate-600 bg-slate-800/50 px-2.5 py-2 text-[10px] space-y-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-slate-300 font-medium break-all">
-                      {q.schemaName || 'unknown'}
-                    </span>
-                    <span className="text-slate-200 font-bold shrink-0">
-                      max {q.maxDurationSeconds}s · avg {q.avgDurationSeconds}s
-                    </span>
-                  </div>
-                  <div className="text-slate-500 text-[9px]">
-                    {q.countStar} execs · {q.sumRowsExamined.toLocaleString()} rows examined
-                    {q.sumNoIndexUsed > 0 && <span className="text-amber-400 font-medium"> · {q.sumNoIndexUsed} no index</span>}
-                  </div>
-                  {(q.querySampleText || q.digestText) && (
-                    <div className="text-slate-500 font-mono text-[9px] break-all line-clamp-3 leading-relaxed">
-                      {q.querySampleText || q.digestText}
-                    </div>
+          {/* DBA schema — analyzed queries with recommendations */}
+          {investigationData?.dbaSlowQueries && investigationData.dbaSlowQueries.length > 0 && (() => {
+            const analyzed = investigationData.dbaSlowQueries
+              .map(analyzeQuery)
+              .sort((a, b) => b.impactScore - a.impactScore);
+            const maxImpact = analyzed[0]?.impactScore || 1;
+
+            return (
+              <div className="border-t border-slate-700 pt-2 space-y-1">
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
+                  Query Analysis — Ranked by Lag Impact
+                </div>
+                <div className="text-[9px] text-slate-600 mb-1">
+                  {analyzed.length} queries from DBA snapshot
+                  {investigationData.dbaDebug?.lastAsOfDate && (
+                    <> · {new Date(investigationData.dbaDebug.lastAsOfDate).toLocaleTimeString()}</>
                   )}
                 </div>
-              ))}
-            </div>
-          )}
+                {analyzed.map((a, i) => {
+                  const impactPct = Math.round((a.impactScore / maxImpact) * 100);
+                  const q = a.query;
+                  const table = extractTable(q.querySampleText || q.digestText);
+                  return (
+                    <div key={i} className={`rounded border px-2.5 py-2 text-[10px] space-y-1.5 ${
+                      i === 0 ? 'border-red-800/60 bg-red-950/15' :
+                      a.issues.length > 0 ? 'border-amber-800/40 bg-amber-950/10' :
+                      'border-slate-600 bg-slate-800/50'
+                    }`}>
+                      {/* Header: rank, schema.table, timing */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                            i === 0 ? 'bg-red-600 text-white' :
+                            i <= 2 ? 'bg-amber-600 text-white' : 'bg-slate-600 text-slate-200'
+                          }`}>#{i + 1}</span>
+                          <span className="text-slate-300 font-medium break-all">
+                            {q.schemaName || 'unknown'}{table ? `.${table}` : ''}
+                          </span>
+                        </div>
+                        <span className="text-slate-200 font-bold shrink-0">
+                          max {q.maxDurationSeconds}s
+                        </span>
+                      </div>
+
+                      {/* Impact bar */}
+                      <div className="space-y-0.5">
+                        <div className="h-1 rounded bg-slate-700 overflow-hidden">
+                          <div className={`h-full rounded ${
+                            i === 0 ? 'bg-red-500' : a.issues.length > 0 ? 'bg-amber-500' : 'bg-slate-500'
+                          }`} style={{ width: `${impactPct}%` }} />
+                        </div>
+                      </div>
+
+                      {/* Stats row */}
+                      <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 text-[9px] text-slate-500">
+                        <span>{q.countStar} execs</span>
+                        <span>avg {q.avgDurationSeconds}s</span>
+                        <span>{formatNumber(q.sumRowsExamined)} rows examined</span>
+                        {q.sumRowsAffected > 0 && <span>{formatNumber(q.sumRowsAffected)} rows affected</span>}
+                        {q.sumNoIndexUsed > 0 && (
+                          <span className="text-red-400 font-bold">⚠ NO INDEX ({q.sumNoIndexUsed}x)</span>
+                        )}
+                      </div>
+
+                      {/* Issues */}
+                      {a.issues.length > 0 && (
+                        <div className="space-y-0.5">
+                          {a.issues.map((issue, j) => (
+                            <div key={j} className="text-[9px] text-amber-300/90">⚠ {issue}</div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Suggestions */}
+                      {a.suggestions.length > 0 && (
+                        <div className="space-y-0.5 border-t border-slate-700/50 pt-1">
+                          {a.suggestions.map((s, j) => (
+                            <div key={j} className="text-[9px] text-emerald-400/80">→ {s}</div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Index hint */}
+                      {a.indexHint && (
+                        <div className="border-t border-slate-700/50 pt-1">
+                          <div className="text-[9px] text-slate-500 mb-0.5">Suggested index:</div>
+                          <pre className="text-[9px] font-mono text-indigo-300 bg-slate-900/80 rounded px-2 py-1 break-all whitespace-pre-wrap cursor-pointer hover:bg-slate-900"
+                            onClick={() => navigator.clipboard.writeText(a.indexHint!)}
+                            title="Click to copy"
+                          >{a.indexHint}</pre>
+                        </div>
+                      )}
+
+                      {/* SQL text */}
+                      {(q.querySampleText || q.digestText) && (
+                        <pre className="text-[9px] font-mono text-slate-500 break-all whitespace-pre-wrap line-clamp-3 leading-relaxed cursor-pointer hover:text-slate-400"
+                          onClick={() => navigator.clipboard.writeText(q.querySampleText || q.digestText)}
+                          title="Click to copy full query"
+                        >{q.querySampleText || q.digestText}</pre>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           {investigationData?.dbaDebug && (!investigationData.dbaSlowQueries || investigationData.dbaSlowQueries.length === 0) && (
             <div className="border-t border-slate-700 pt-2 space-y-1">
