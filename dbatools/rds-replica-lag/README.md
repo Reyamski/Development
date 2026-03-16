@@ -1,6 +1,6 @@
 # RDS Replica Lag
 
-A tool that shows you how far behind your RDS MySQL replica is from the main database. It displays a chart of the lag over time and helps you find out why lag spikes happen.
+A tool that monitors RDS MySQL replica lag in real time. It charts lag over time, correlates it with source/primary write activity, analyzes replica parameters, and provides data-driven root cause analysis when lag spikes happen.
 
 Works on **Windows** and **macOS**.
 
@@ -69,10 +69,53 @@ The app will start and your browser should open automatically at http://localhos
 
 1. **Login** — Click your Teleport cluster and complete the login in the browser that opens.
 2. **Select instance** — Pick your RDS replica from the dropdown.
-3. **View lag** — You will see:
-   - A chart showing how the lag changes over time
-   - A sidebar with live status (IO thread, SQL thread, etc.)
-4. **Investigate a spike** — Click and drag across a lag spike on the chart to zoom in and see more details.
+3. **View lag** — The chart shows replica lag over time with the source/primary WriteIOPS overlaid in amber so you can visually correlate write spikes on the primary with lag spikes on the replica.
+4. **Check parameters** — The sidebar shows your replica's MySQL parameter group with recommendations (e.g., increase `slave_parallel_workers`, set `slave_parallel_type=LOGICAL_CLOCK`).
+5. **Investigate a spike** — Click and drag across a lag spike on the chart to zoom in. The tool will show:
+   - **Root Cause Analysis** — Data-driven narrative correlating the lag with source write activity, specific slow queries, and worker utilization
+   - **Query Analysis** — Top queries ranked by lag impact with per-query recommendations (index suggestions, optimization hints)
+   - **Worker Activity** — Parallel replication worker utilization with tuning advice
+   - **Source Correlation** — Whether the lag spike was caused by a write burst on the primary
+
+---
+
+## Features
+
+### Lag Chart with Source Correlation
+
+The chart shows two data series:
+
+- **ReplicaLag** (gray line, left Y-axis) — How far behind the replica is, in seconds
+- **Source WriteIOPS** (amber line, right Y-axis) — Write activity on the primary/source instance
+
+When both lines spike at the same time, it means high write load on the primary is the likely cause of lag. This data comes from CloudWatch — no connection to the primary database is required.
+
+### Replica Parameter Analysis
+
+On connect, the tool fetches your RDS parameter group and checks replica-specific settings:
+
+| Parameter | What it checks |
+|-----------|---------------|
+| `slave_parallel_workers` | Should be 8-16, not 0 (single-threaded) |
+| `slave_parallel_type` | Should be LOGICAL_CLOCK, not DATABASE |
+| `slave_preserve_commit_order` | Should be ON for consistency |
+| `innodb_flush_log_at_trx_commit` | Can safely be 2 on a replica (faster apply) |
+| `sync_binlog` | Can be relaxed on replica if no downstream replicas |
+| `innodb_buffer_pool_size` | Should be 70-80% of instance memory |
+| `innodb_io_capacity` | Should be >200 for SSD storage |
+| `read_only` | Should be ON for replicas |
+
+Each recommendation shows current vs suggested values, whether it requires a reboot (REBOOT) or can be applied live (LIVE), and detailed pros/cons.
+
+### Data-Driven Root Cause Analysis
+
+When investigating a lag spike, the RCA shows:
+
+- **Specific queries** that contributed to lag (from `dba.events_statements_summary_by_digest_history`), ranked by impact with index suggestions
+- **Worker utilization** — how many parallel workers are active vs idle, with scaling recommendations
+- **Source write correlation** — "Source primary write spike detected — peak 12.8K IOPS (avg 5.2K), 2.5x surge"
+- **GTID gap** — how many transactions are pending application
+- **Slow applier detection** — statements that took >1s to apply on the replica
 
 ---
 
