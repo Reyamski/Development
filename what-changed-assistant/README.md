@@ -150,9 +150,9 @@ This is a **working MVP** with realistic mock data to demonstrate the UI/UX and 
 ✅ Responsive layout with Tailwind styling
 
 ### Next Steps (Real Integrations)
-🔲 Connect to real Jira API (replace `server/src/services/jira.ts` mock)  
+✅ Connect to real Jira API (**COMPLETED**)  
 🔲 Connect to MySQL via Teleport for query digest diffs (replace `server/src/services/database.ts` mock)  
-🔲 Integrate AWS RDS CLI for parameter history (replace `server/src/services/config.ts` mock)  
+✅ Integrate AWS RDS CLI for parameter history (**COMPLETED**)  
 🔲 Add Confluence integration for runbook changes  
 🔲 Add feature flag service integration (LaunchDarkly, etc.)  
 🔲 Implement query digest comparison logic (before/after)  
@@ -228,6 +228,109 @@ Fetch database schema changes, migrations, and query digest diffs.
 
 ### GET `/api/config/changes`
 Fetch config changes (RDS parameters, feature flags, etc.).
+
+**Query Parameters**:
+- `startTime` (required): ISO 8601 timestamp
+- `endTime` (required): ISO 8601 timestamp
+- `accountId` (optional): AWS account ID
+- `region` (optional): AWS region (e.g., `us-east-1`)
+- `parameterGroupName` (optional): RDS parameter group name
+
+**Response**:
+```json
+[
+  {
+    "id": "rds-param-max_connections-2026-03-19T14:30:00Z",
+    "timestamp": "2026-03-19T14:30:00Z",
+    "changeType": "parameter",
+    "source": "RDS Parameter Group",
+    "parameter": "max_connections",
+    "oldValue": "500",
+    "newValue": "1000",
+    "appliedBy": "arn:aws:sts::123456789012:assumed-role/DBARole/john.doe",
+    "requiresReboot": true
+  }
+]
+```
+
+### GET `/api/config/rds-parameters`
+Fetch RDS parameter changes for a specific instance.
+
+**Query Parameters**:
+- `dbInstance` (required): Format `{accountId}-{region}-{parameterGroupName}`
+- `startTime` (required): ISO 8601 timestamp
+- `endTime` (required): ISO 8601 timestamp
+
+**Response**:
+```json
+[
+  {
+    "parameterName": "max_connections",
+    "oldValue": "500",
+    "newValue": "1000",
+    "applyType": "PENDING_REBOOT",
+    "modifiedDate": "2026-03-19T14:30:00Z"
+  }
+]
+```
+
+---
+
+## AWS RDS Integration Details
+
+### How It Works
+
+The AWS RDS parameter change detection uses a **hybrid approach**:
+
+1. **Primary Source: CloudTrail** (if available)
+   - Queries `ModifyDBParameterGroup` events within the time window
+   - Extracts parameter name, new value, timestamp, and user from event details
+   - Provides true historical change tracking with exact timestamps
+
+2. **Fallback: Current Parameter State**
+   - If CloudTrail is unavailable or returns no events, falls back to current state
+   - Queries `describe-db-parameters --source user` to get user-modified parameters
+   - Returns current values with current timestamp (best-effort detection)
+
+3. **AWS SSO Integration**
+   - Auto-detects AWS SSO configuration from `~/.aws/config`
+   - Reuses existing profiles or creates temporary profiles (`rds-dba-{accountId}`)
+   - Assumes user is already logged in via `aws sso login`
+
+### Prerequisites
+
+1. **AWS CLI installed** and configured with SSO
+2. **Valid SSO session**: Run `aws sso login --profile <profile-name>` first
+3. **IAM permissions**:
+   - `rds:DescribeDBParameters` (minimum)
+   - `cloudtrail:LookupEvents` (optional, for historical tracking)
+4. **CloudTrail enabled** (recommended but not required)
+
+### Usage Example
+
+**Via `/api/config/changes` endpoint**:
+```bash
+curl "http://localhost:4000/api/config/changes?\
+startTime=2026-03-19T08:00:00Z&\
+endTime=2026-03-19T14:00:00Z&\
+accountId=123456789012&\
+region=us-east-1&\
+parameterGroupName=prod-mysql-params"
+```
+
+**Via `/api/config/rds-parameters` endpoint**:
+```bash
+curl "http://localhost:4000/api/config/rds-parameters?\
+dbInstance=123456789012-us-east-1-prod-mysql-params&\
+startTime=2026-03-19T08:00:00Z&\
+endTime=2026-03-19T14:00:00Z"
+```
+
+### Limitations
+
+- **Without CloudTrail**: Can only detect that parameters are currently modified, not when they were changed
+- **CloudTrail Delay**: Events may take 5-15 minutes to appear in CloudTrail
+- **90-day retention**: CloudTrail `lookup-events` only queries last 90 days (use CloudTrail S3 exports for older data)
 
 ---
 

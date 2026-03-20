@@ -7,12 +7,15 @@ router.get('/changes', async (req, res) => {
   try {
     const startTime = req.query.startTime as string;
     const endTime = req.query.endTime as string;
+    const accountId = req.query.accountId as string | undefined;
+    const region = req.query.region as string | undefined;
+    const parameterGroupName = req.query.parameterGroupName as string | undefined;
 
     if (!startTime || !endTime) {
       return res.status(400).json({ error: 'startTime and endTime are required' });
     }
 
-    const changes = await getConfigChanges(startTime, endTime);
+    const changes = await getConfigChanges(startTime, endTime, accountId, region, parameterGroupName);
     res.json(changes);
   } catch (error: any) {
     console.error('Error fetching config changes:', error);

@@ -1,4 +1,7 @@
 import React from 'react';
+import { Database, Table, Zap, Clock, TrendingUp } from 'lucide-react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useAppStore } from '../store/app-store';
 import { DatabaseChange } from '../api/types';
 
@@ -36,9 +39,9 @@ export default function DatabaseTab() {
       {databaseChanges.map((change) => (
         <div
           key={change.id}
-          className={`bg-gray-800 border rounded-lg p-6 cursor-pointer transition-all ${
+          className={`bg-gray-800 border rounded-lg p-6 cursor-pointer card-hover border-accent-database ${
             selectedChangeId === change.id
-              ? 'border-red-500 ring-2 ring-red-500'
+              ? 'border-red-500 ring-2 ring-red-500 shadow-glow-red'
               : 'border-gray-700 hover:border-red-600'
           }`}
           onClick={() => setSelectedChangeId(selectedChangeId === change.id ? null : change.id)}
@@ -46,6 +49,9 @@ export default function DatabaseTab() {
           <div className="flex items-start justify-between mb-3">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
+                {change.changeType === 'schema' && <Table className="w-4 h-4 text-blue-400" />}
+                {change.changeType === 'migration' && <Database className="w-4 h-4 text-purple-400" />}
+                {change.changeType === 'query_pattern' && <Zap className="w-4 h-4 text-orange-400" />}
                 <span className={`px-2 py-1 text-xs rounded ${getChangeTypeBadge(change.changeType)}`}>
                   {change.changeType}
                 </span>
@@ -57,8 +63,9 @@ export default function DatabaseTab() {
             </div>
           </div>
 
-          <div className="text-sm text-gray-400 mb-3">
-            Time: {new Date(change.timestamp).toLocaleString()}
+          <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
+            <Clock className="w-4 h-4" />
+            {new Date(change.timestamp).toLocaleString()}
           </div>
 
           <div className="grid grid-cols-2 gap-4 text-sm mb-3">
@@ -75,14 +82,28 @@ export default function DatabaseTab() {
           </div>
 
           {change.details && (
-            <div className="mt-4 bg-gray-900 border border-gray-700 rounded p-4">
-              <div className="text-xs font-semibold text-gray-400 mb-2">Details:</div>
+            <div className="mt-4 bg-gray-900 border border-gray-700 rounded-lg overflow-hidden">
+              <div className="px-4 py-2 bg-gray-800 border-b border-gray-700">
+                <div className="text-xs font-semibold text-gray-400">Details</div>
+              </div>
               {change.changeType === 'schema' && change.details.statement && (
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">SQL Statement:</div>
-                  <code className="text-xs text-green-400 block mb-2 overflow-x-auto">
+                <div className="p-4">
+                  <div className="text-xs text-gray-500 mb-2 flex items-center gap-2">
+                    <Table className="w-3.5 h-3.5" />
+                    SQL Statement:
+                  </div>
+                  <SyntaxHighlighter
+                    language="sql"
+                    style={vscDarkPlus}
+                    customStyle={{
+                      margin: 0,
+                      padding: '1rem',
+                      borderRadius: '0.5rem',
+                      fontSize: '0.8125rem',
+                    }}
+                  >
                     {change.details.statement}
-                  </code>
+                  </SyntaxHighlighter>
                   {change.details.executionTime && (
                     <div className="text-xs text-gray-400">
                       Execution Time: {change.details.executionTime}
@@ -96,14 +117,32 @@ export default function DatabaseTab() {
                 </div>
               )}
               {change.changeType === 'query_pattern' && (
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">Query:</div>
-                  <code className="text-xs text-green-400 block mb-2 overflow-x-auto">
+                <div className="p-4">
+                  <div className="text-xs text-gray-500 mb-2 flex items-center gap-2">
+                    <Zap className="w-3.5 h-3.5" />
+                    Query Pattern:
+                  </div>
+                  <SyntaxHighlighter
+                    language="sql"
+                    style={vscDarkPlus}
+                    customStyle={{
+                      margin: 0,
+                      padding: '1rem',
+                      borderRadius: '0.5rem',
+                      fontSize: '0.8125rem',
+                    }}
+                  >
                     {change.details.queryText}
-                  </code>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-400">
-                    <div>Executions: {change.details.executionCount?.toLocaleString()}</div>
-                    <div>Avg Latency: {change.details.avgLatency}ms</div>
+                  </SyntaxHighlighter>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-400 mt-3 p-3 bg-gray-800 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      Executions: <span className="text-red-400 font-semibold">{change.details.executionCount?.toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-3.5 h-3.5" />
+                      Avg Latency: <span className="text-yellow-400 font-semibold">{change.details.avgLatency}ms</span>
+                    </div>
                   </div>
                 </div>
               )}

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Clock, Ticket, Database, Settings, Link2 } from 'lucide-react';
 import { useAppStore } from '../store/app-store';
 
 export default function SummaryTab() {
@@ -17,7 +18,10 @@ export default function SummaryTab() {
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
-        <h3 className="text-lg font-bold text-blue-400 mb-4">Time Window</h3>
+        <h3 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2">
+          <Clock className="w-5 h-5" />
+          Time Window
+        </h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <span className="text-gray-400">Incident Time:</span>
@@ -41,32 +45,42 @@ export default function SummaryTab() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <button
           onClick={() => setActiveTab('jira')}
-          className="bg-purple-900 hover:bg-purple-800 border border-purple-700 rounded-lg p-6 text-left transition-colors"
+          className="bg-purple-900 hover:bg-purple-800 border border-purple-700 rounded-lg p-6 text-left card-hover shadow-lg"
         >
-          <div className="text-4xl font-bold text-purple-400">{jiraChanges.length}</div>
-          <div className="text-sm text-gray-300 mt-2">Jira Releases/Deployments</div>
+          <div className="flex items-center justify-between mb-3">
+            <Ticket className="w-8 h-8 text-purple-400" />
+            <div className="text-4xl font-bold text-purple-400">{jiraChanges.length}</div>
+          </div>
+          <div className="text-sm text-gray-300 font-semibold">Jira Releases/Deployments</div>
         </button>
 
         <button
           onClick={() => setActiveTab('database')}
-          className="bg-red-900 hover:bg-red-800 border border-red-700 rounded-lg p-6 text-left transition-colors"
+          className="bg-red-900 hover:bg-red-800 border border-red-700 rounded-lg p-6 text-left card-hover shadow-lg"
         >
-          <div className="text-4xl font-bold text-red-400">{databaseChanges.length}</div>
-          <div className="text-sm text-gray-300 mt-2">Database Changes</div>
+          <div className="flex items-center justify-between mb-3">
+            <Database className="w-8 h-8 text-red-400" />
+            <div className="text-4xl font-bold text-red-400">{databaseChanges.length}</div>
+          </div>
+          <div className="text-sm text-gray-300 font-semibold">Database Changes</div>
         </button>
 
         <button
           onClick={() => setActiveTab('config')}
-          className="bg-yellow-900 hover:bg-yellow-800 border border-yellow-700 rounded-lg p-6 text-left transition-colors"
+          className="bg-yellow-900 hover:bg-yellow-800 border border-yellow-700 rounded-lg p-6 text-left card-hover shadow-lg"
         >
-          <div className="text-4xl font-bold text-yellow-400">{configChanges.length}</div>
-          <div className="text-sm text-gray-300 mt-2">Config Changes</div>
+          <div className="flex items-center justify-between mb-3">
+            <Settings className="w-8 h-8 text-yellow-400" />
+            <div className="text-4xl font-bold text-yellow-400">{configChanges.length}</div>
+          </div>
+          <div className="text-sm text-gray-300 font-semibold">Config Changes</div>
         </button>
       </div>
 
       {correlations.length > 0 && (
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
-          <h3 className="text-lg font-bold text-green-400 mb-4">
+          <h3 className="text-lg font-bold text-green-400 mb-4 flex items-center gap-2">
+            <Link2 className="w-5 h-5" />
             Detected Correlations ({correlations.length})
           </h3>
           <div className="space-y-3">

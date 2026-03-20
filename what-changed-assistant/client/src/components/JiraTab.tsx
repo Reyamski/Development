@@ -1,4 +1,5 @@
 import React from 'react';
+import { Rocket, Zap, Activity, User, Calendar, Tag } from 'lucide-react';
 import { useAppStore } from '../store/app-store';
 import { JiraRelease } from '../api/types';
 
@@ -28,9 +29,9 @@ export default function JiraTab() {
       {jiraChanges.map((release) => (
         <div
           key={release.id}
-          className={`bg-gray-800 border rounded-lg p-6 cursor-pointer transition-all ${
+          className={`bg-gray-800 border rounded-lg p-6 cursor-pointer card-hover border-accent-jira ${
             selectedChangeId === release.id
-              ? 'border-purple-500 ring-2 ring-purple-500'
+              ? 'border-purple-500 ring-2 ring-purple-500 shadow-glow-purple'
               : 'border-gray-700 hover:border-purple-600'
           }`}
           onClick={() => setSelectedChangeId(selectedChangeId === release.id ? null : release.id)}
@@ -38,7 +39,10 @@ export default function JiraTab() {
           <div className="flex items-start justify-between mb-3">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
-                <span className="font-mono text-sm text-purple-400">{release.key}</span>
+                {release.deploymentType === 'hotfix' && <Zap className="w-4 h-4 text-orange-400" />}
+                {release.deploymentType === 'production' && <Rocket className="w-4 h-4 text-red-400" />}
+                {release.deploymentType === 'staging' && <Activity className="w-4 h-4 text-blue-400" />}
+                <span className="font-mono text-sm text-purple-400 font-semibold">{release.key}</span>
                 <span className={`px-2 py-1 text-xs rounded ${getDeploymentTypeBadge(release.deploymentType)}`}>
                   {release.deploymentType}
                 </span>
@@ -50,8 +54,9 @@ export default function JiraTab() {
             </div>
           </div>
 
-          <div className="text-sm text-gray-400 mb-3">
-            Released: {new Date(release.releaseDate).toLocaleString()}
+          <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
+            <Calendar className="w-4 h-4" />
+            {new Date(release.releaseDate).toLocaleString()}
           </div>
 
           {release.description && (
@@ -60,14 +65,16 @@ export default function JiraTab() {
 
           <div className="grid grid-cols-2 gap-4 text-sm">
             {release.assignee && (
-              <div>
-                <span className="text-gray-500">Assignee:</span>{' '}
+              <div className="flex items-center gap-2">
+                <User className="w-4 h-4 text-gray-500" />
+                <span className="text-gray-500">Assignee:</span>
                 <span className="text-gray-300">{release.assignee}</span>
               </div>
             )}
             {release.reporter && (
-              <div>
-                <span className="text-gray-500">Reporter:</span>{' '}
+              <div className="flex items-center gap-2">
+                <User className="w-4 h-4 text-gray-500" />
+                <span className="text-gray-500">Reporter:</span>
                 <span className="text-gray-300">{release.reporter}</span>
               </div>
             )}
@@ -75,8 +82,9 @@ export default function JiraTab() {
 
           {release.labels.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
+              <Tag className="w-4 h-4 text-gray-400" />
               {release.labels.map((label) => (
-                <span key={label} className="px-2 py-1 text-xs rounded bg-purple-900 text-purple-200">
+                <span key={label} className="px-2 py-1 text-xs rounded bg-purple-900/50 text-purple-200 border border-purple-700">
                   {label}
                 </span>
               ))}
