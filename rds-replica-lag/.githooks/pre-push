@@ -1,0 +1,31 @@
+#!/bin/bash
+set -e
+
+# 1. Sync README.md from CLAUDE.md
+if ! diff -q CLAUDE.md README.md > /dev/null 2>&1; then
+  echo "[pre-push] Syncing README.md from CLAUDE.md..."
+  cp CLAUDE.md README.md
+  git add README.md
+  git commit -m "chore: sync README.md from CLAUDE.md [skip ci]"
+fi
+
+# 2. PII/Secrets scan
+echo "[pre-push] Scanning for secrets..."
+if git diff --cached --name-only | xargs grep -rn \
+  -e 'AKIA[0-9A-Z]{16}' \
+  -e 'sk-[a-zA-Z0-9]{20,}' \
+  -e 'ghp_[a-zA-Z0-9]{36}' \
+  -e 'xoxb-[0-9]+-[a-zA-Z0-9]+' \
+  -e 'password\s*=\s*["\x27][^\x27"]+["\x27]' \
+  -e 'BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY' \
+  2>/dev/null; then
+  echo "[pre-push] ERROR: Potential secret detected. Aborting push."
+  exit 1
+fi
+
+# 3. TypeScript type-check
+echo "[pre-push] Type-checking..."
+npx -w server tsc --noEmit
+npx -w client tsc --noEmit
+
+echo "[pre-push] All checks passed."
