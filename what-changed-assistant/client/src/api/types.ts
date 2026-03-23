@@ -5,6 +5,13 @@ export interface TimeWindow {
   endTime: string;
 }
 
+export interface RiskAssessment {
+  score: number;
+  level: 'low' | 'medium' | 'high' | 'critical';
+  reasons: string[];
+  flags: string[];
+}
+
 export interface JiraRelease {
   id: string;
   key: string;
@@ -18,6 +25,7 @@ export interface JiraRelease {
   description: string | null;
   labels: string[];
   components: string[];
+  risk?: RiskAssessment;
 }
 
 export interface DatabaseChange {
@@ -29,6 +37,7 @@ export interface DatabaseChange {
   description: string;
   severity: 'low' | 'medium' | 'high';
   details: any;
+  risk?: RiskAssessment;
 }
 
 export interface ConfigChange {
@@ -41,6 +50,7 @@ export interface ConfigChange {
   newValue: string;
   appliedBy: string | null;
   requiresReboot: boolean;
+  risk?: RiskAssessment;
 }
 
 export interface Correlation {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Filter, Download, AlertCircle, Link2, Clock } from 'lucide-react';
+import { Search, Filter, Download, AlertCircle, Link2, Clock, Shield, Skull } from 'lucide-react';
 import { useAppStore } from '../store/app-store';
 
 export default function SearchFilter() {
@@ -19,8 +19,15 @@ export default function SearchFilter() {
 
   const [showOnlyCorrelated, setShowOnlyCorrelated] = useState(false);
   const [showOnlyHighSeverity, setShowOnlyHighSeverity] = useState(false);
+  const [showOnlyHighRisk, setShowOnlyHighRisk] = useState(false);
 
   const totalChanges = jiraChanges.length + databaseChanges.length + configChanges.length;
+  
+  // Count high-risk changes
+  const allChanges = [...jiraChanges, ...databaseChanges, ...configChanges];
+  const highRiskCount = allChanges.filter(c => 
+    c.risk && (c.risk.level === 'critical' || c.risk.level === 'high')
+  ).length;
 
   const handleExport = () => {
     const data = {
@@ -58,13 +65,25 @@ export default function SearchFilter() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-xs text-gray-400 font-medium">Quick Actions:</div>
+        <div className="text-xs text-gray-400 font-medium">Quick Filters:</div>
         
+        <button
+          onClick={() => setShowOnlyHighRisk(!showOnlyHighRisk)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+            showOnlyHighRisk
+              ? 'bg-red-900 text-red-100 border border-red-700'
+              : 'bg-gray-800 text-gray-300 border border-gray-600 hover:bg-gray-700'
+          }`}
+        >
+          <Skull className="w-3.5 h-3.5" />
+          High Risk Only {highRiskCount > 0 && `(${highRiskCount})`}
+        </button>
+
         <button
           onClick={() => setShowOnlyHighSeverity(!showOnlyHighSeverity)}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
             showOnlyHighSeverity
-              ? 'bg-red-900 text-red-100 border border-red-700'
+              ? 'bg-orange-900 text-orange-100 border border-orange-700'
               : 'bg-gray-800 text-gray-300 border border-gray-600 hover:bg-gray-700'
           }`}
         >
@@ -97,17 +116,26 @@ export default function SearchFilter() {
             setSearchTerm('');
             setShowOnlyCorrelated(false);
             setShowOnlyHighSeverity(false);
+            setShowOnlyHighRisk(false);
           }}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded-md text-gray-300 text-xs font-medium transition-colors ml-auto"
         >
           <Clock className="w-3.5 h-3.5" />
-          Reset Filters
+          Reset All
         </button>
       </div>
 
       {totalChanges > 0 && (
-        <div className="mt-3 text-xs text-gray-400">
-          Showing <span className="text-blue-400 font-semibold">{totalChanges}</span> total changes
+        <div className="mt-3 flex items-center justify-between text-xs text-gray-400">
+          <span>
+            Showing <span className="text-blue-400 font-semibold">{totalChanges}</span> total changes
+          </span>
+          {highRiskCount > 0 && (
+            <span className="flex items-center gap-1 text-red-400">
+              <Shield className="w-3.5 h-3.5" />
+              <span className="font-semibold">{highRiskCount}</span> high-risk changes detected
+            </span>
+          )}
         </div>
       )}
     </div>

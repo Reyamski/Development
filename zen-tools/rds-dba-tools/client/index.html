@@ -1,0 +1,1470 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RDS DBA Tools</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'] }
+        }
+      }
+    }
+  </script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <!-- Chart.js + date adapter + annotation plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .log-scroll { scrollbar-width: thin; scrollbar-color: #374151 transparent; }
+    .log-scroll::-webkit-scrollbar { width: 6px; }
+    .log-scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+  </style>
+</head>
+<body class="h-full bg-gray-950 text-gray-200 font-mono" x-data="app()" x-cloak>
+
+  <!-- Header -->
+  <header class="border-b border-gray-800 px-6 py-3 flex items-center gap-6 bg-gray-900">
+    <span class="text-blue-400 font-semibold tracking-wide">RDS DBA Tools</span>
+    <nav class="flex gap-1">
+      <button
+        @click="activeTab = 'sso'"
+        :class="activeTab === 'sso' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'"
+        class="px-3 py-1.5 rounded text-sm transition-colors"
+      >SSO Setup</button>
+      <button
+        @click="activeTab = 'logs'"
+        :class="activeTab === 'logs' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'"
+        class="px-3 py-1.5 rounded text-sm transition-colors"
+      >RDS Logs</button>
+      <button
+        @click="activeTab = 'metrics'"
+        :class="activeTab === 'metrics' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'"
+        class="px-3 py-1.5 rounded text-sm transition-colors"
+      >Metrics &amp; Events</button>
+    </nav>
+  </header>
+
+  <!-- SSO Setup Tab -->
+  <main x-show="activeTab === 'sso'" class="flex h-[calc(100vh-49px)] overflow-hidden">
+
+    <!-- Left panel: config -->
+    <aside class="w-80 bg-gray-900 border-r border-gray-800 flex flex-col p-4 gap-4 overflow-y-auto">
+      <div>
+        <label class="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">SSO Start URL</label>
+        <input
+          type="url"
+          x-model="sso.startUrl"
+          placeholder="https://company.awsapps.com/start"
+          class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+        />
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">SSO Region</label>
+          <input
+            type="text"
+            x-model="sso.ssoRegion"
+            placeholder="us-east-1"
+            class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">App Region</label>
+          <input
+            type="text"
+            x-model="sso.appRegion"
+            placeholder="us-east-1"
+            class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+      </div>
+
+      <div class="space-y-1.5">
+        <span class="block text-xs font-medium text-gray-400 uppercase tracking-wider">Config Format</span>
+        <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+          <input type="radio" x-model="sso.format" value="sso-session" class="accent-blue-500" />
+          sso-session (recommended)
+        </label>
+        <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+          <input type="radio" x-model="sso.format" value="legacy" class="accent-blue-500" />
+          Legacy (inline per profile)
+        </label>
+      </div>
+
+      <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+        <input type="checkbox" x-model="sso.overwrite" class="accent-red-500" />
+        Overwrite existing config (vs merge)
+      </label>
+
+      <button
+        @click="discoverAccounts()"
+        :disabled="sso.status === 'streaming' || !sso.startUrl"
+        class="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-2 px-4 rounded transition-colors"
+      >
+        <span x-text="sso.status === 'streaming' ? 'Discovering...' : 'Discover Accounts'"></span>
+      </button>
+
+      <!-- Generate config button (only when accounts discovered) -->
+      <template x-if="sso.accounts.length > 0">
+        <button
+          @click="generateConfig()"
+          :disabled="sso.generating"
+          class="w-full bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-2 px-4 rounded transition-colors"
+        >
+          <span x-text="sso.generating ? 'Writing...' : `Generate ~/.aws/config (${sso.accounts.filter(a=>a.selected).length} profiles)`"></span>
+        </button>
+      </template>
+
+      <template x-if="sso.generationResult">
+        <div class="text-xs text-emerald-400 bg-emerald-950 border border-emerald-800 rounded p-2">
+          Written <span x-text="sso.generationResult.written"></span> profiles.
+          <template x-if="sso.generationResult.backupPath">
+            <span class="text-gray-500">Backup: <span x-text="sso.generationResult.backupPath"></span></span>
+          </template>
+        </div>
+      </template>
+
+      <template x-if="sso.error">
+        <div class="text-xs text-red-400 bg-red-950 border border-red-800 rounded p-2" x-text="sso.error"></div>
+      </template>
+    </aside>
+
+    <!-- Main: status log + accounts table -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <!-- Status log -->
+      <div class="border-b border-gray-800 h-36 flex flex-col">
+        <div class="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">Status Log</div>
+        <div class="flex-1 overflow-y-auto log-scroll p-3 space-y-0.5" id="sso-log">
+          <template x-for="(msg, i) in sso.log" :key="i">
+            <div class="text-xs text-gray-400 font-mono" x-text="msg"></div>
+          </template>
+          <template x-if="sso.log.length === 0">
+            <div class="text-xs text-gray-600">Waiting to start...</div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Accounts table -->
+      <div class="flex-1 flex flex-col overflow-hidden">
+        <div class="px-4 py-2 flex items-center justify-between border-b border-gray-800">
+          <span class="text-xs text-gray-500 uppercase tracking-wider">Discovered Accounts</span>
+          <template x-if="sso.accounts.length > 0">
+            <div class="flex gap-3 text-xs text-gray-500">
+              <button @click="sso.accounts.forEach(a => a.selected = true)" class="hover:text-gray-300">Select all</button>
+              <button @click="sso.accounts.forEach(a => a.selected = false)" class="hover:text-gray-300">Deselect all</button>
+              <span x-text="`${sso.accounts.filter(a=>a.selected).length} / ${sso.accounts.length} selected`"></span>
+            </div>
+          </template>
+        </div>
+        <div class="flex-1 overflow-y-auto log-scroll">
+          <template x-if="sso.accounts.length === 0">
+            <div class="p-6 text-center text-gray-600 text-sm">No accounts discovered yet. Enter your SSO URL and click Discover.</div>
+          </template>
+          <template x-if="sso.accounts.length > 0">
+            <table class="w-full text-xs">
+              <thead class="sticky top-0 bg-gray-900 border-b border-gray-800">
+                <tr>
+                  <th class="w-8 px-3 py-2 text-left text-gray-500 font-medium"></th>
+                  <th class="px-3 py-2 text-left text-gray-500 font-medium">Account Name</th>
+                  <th class="px-3 py-2 text-left text-gray-500 font-medium">Account ID</th>
+                  <th class="px-3 py-2 text-left text-gray-500 font-medium">Role</th>
+                  <th class="px-3 py-2 text-left text-gray-500 font-medium">Profile Name</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-800">
+                <template x-for="(acc, i) in sso.accounts" :key="i">
+                  <tr class="hover:bg-gray-900/50">
+                    <td class="px-3 py-1.5">
+                      <input type="checkbox" x-model="acc.selected" class="accent-blue-500" />
+                    </td>
+                    <td class="px-3 py-1.5 text-gray-300" x-text="acc.accountName"></td>
+                    <td class="px-3 py-1.5 text-gray-500" x-text="acc.accountId"></td>
+                    <td class="px-3 py-1.5 text-blue-400" x-text="acc.roleName"></td>
+                    <td class="px-3 py-1.5">
+                      <input
+                        type="text"
+                        x-model="acc.profileName"
+                        class="w-full bg-transparent border-b border-gray-700 focus:border-blue-500 focus:outline-none text-gray-300 py-0.5"
+                      />
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- RDS Logs Tab -->
+  <main x-show="activeTab === 'logs'" class="flex h-[calc(100vh-49px)] overflow-hidden">
+
+    <!-- Left panel: controls -->
+    <aside class="w-72 bg-gray-900 border-r border-gray-800 flex flex-col p-4 gap-4 overflow-y-auto">
+
+      <!-- AWS CLI missing banner -->
+      <template x-if="!awsCli.installed">
+        <div class="space-y-2">
+          <div class="text-xs text-red-400 bg-red-950 border border-red-800 rounded p-2">
+            AWS CLI not found. Required for SSO re-authentication.
+          </div>
+          <button
+            @click="installAwsCli()"
+            :disabled="awsCli.installing"
+            class="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-2 px-4 rounded transition-colors"
+          >
+            <span x-text="awsCli.installing ? 'Installing...' : 'Install AWS CLI'"></span>
+          </button>
+          <template x-if="awsCli.log.length > 0">
+            <div id="awscli-log" class="bg-gray-800 border border-gray-700 rounded p-2 h-32 overflow-y-auto log-scroll space-y-0.5">
+              <template x-for="(line, i) in awsCli.log" :key="i">
+                <div class="text-[10px] text-gray-400 font-mono" x-text="line"></div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <div>
+        <label class="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">AWS Profile</label>
+        <select
+          x-model="logs.profile"
+          @focus="loadProfiles()"
+          class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
+        >
+          <option value="" disabled>Select profile...</option>
+          <template x-for="p in logs.profiles" :key="p">
+            <option :value="p" x-text="p"></option>
+          </template>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Region</label>
+        <input
+          type="text"
+          x-model="logs.region"
+          placeholder="us-east-1"
+          class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+        />
+      </div>
+
+      <button
+        @click="loadInstances()"
+        :disabled="logs.loadingInstances || !logs.profile || !logs.region"
+        class="w-full bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-medium py-1.5 px-4 rounded transition-colors"
+      >
+        <span x-text="logs.loadingInstances ? 'Loading...' : 'Load Instances'"></span>
+      </button>
+
+      <!-- Instance cards -->
+      <template x-if="logs.instances.length > 0">
+        <div class="space-y-1.5">
+          <span class="block text-xs font-medium text-gray-400 uppercase tracking-wider">Instances</span>
+          <template x-for="inst in logs.instances" :key="inst.id">
+            <label
+              class="flex items-center gap-2 p-2 rounded border cursor-pointer transition-colors"
+              :class="inst.enabled ? 'border-blue-700 bg-blue-950/30' : 'border-gray-700 bg-gray-800/30 hover:border-gray-600'"
+            >
+              <input type="checkbox" x-model="inst.enabled" class="accent-blue-500 shrink-0" />
+              <div class="min-w-0">
+                <div class="text-xs text-gray-200 truncate" x-text="inst.id"></div>
+                <div class="flex items-center gap-1.5 mt-0.5">
+                  <span
+                    class="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                    :class="{
+                      'bg-orange-900 text-orange-300': inst.engine.includes('mysql') || inst.engine.includes('aurora-mysql'),
+                      'bg-blue-900 text-blue-300': inst.engine.includes('postgres'),
+                      'bg-green-900 text-green-300': inst.engine === 'docdb',
+                    }"
+                    x-text="inst.engine"
+                  ></span>
+                  <span class="text-[10px] text-gray-600" x-text="inst.status"></span>
+                </div>
+              </div>
+            </label>
+          </template>
+        </div>
+      </template>
+
+      <!-- Date range -->
+      <div class="space-y-2">
+        <span class="block text-xs font-medium text-gray-400 uppercase tracking-wider">Date Range</span>
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-0.5 uppercase">From</label>
+          <input
+            type="datetime-local"
+            x-model="logs.fromDate"
+            class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-0.5 uppercase">To</label>
+          <input
+            type="datetime-local"
+            x-model="logs.toDate"
+            class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="space-y-1.5">
+        <span class="block text-xs font-medium text-gray-400 uppercase tracking-wider">Filters</span>
+        <template x-for="filter in logs.availableFilters" :key="filter.id">
+          <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+            <input type="checkbox" :value="filter.id" x-model="logs.filters" class="accent-blue-500" />
+            <span x-text="filter.label"></span>
+          </label>
+        </template>
+        <button @click="logs.filters = []" class="text-[10px] text-gray-600 hover:text-gray-400 mt-1">Clear all (show everything)</button>
+      </div>
+
+      <button
+        @click="fetchLogs()"
+        :disabled="logs.status === 'streaming' || logs.instances.filter(i=>i.enabled).length === 0"
+        class="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-2 px-4 rounded transition-colors"
+      >
+        <span x-text="logs.status === 'streaming' ? 'Fetching...' : 'Fetch Logs'"></span>
+      </button>
+
+      <!-- SSO expired: re-auth UI -->
+      <template x-if="logs.ssoExpired">
+        <div class="space-y-2">
+          <div class="text-xs text-amber-400 bg-amber-950 border border-amber-800 rounded p-2">
+            SSO token expired for <strong x-text="logs.profile"></strong>.
+          </div>
+          <button
+            @click="reauthProfile()"
+            :disabled="logs.reauth.status === 'streaming'"
+            class="w-full bg-amber-700 hover:bg-amber-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-1.5 px-4 rounded transition-colors"
+          >
+            <span x-text="logs.reauth.status === 'streaming' ? 'Authenticating...' : 'Re-authenticate'"></span>
+          </button>
+          <template x-if="logs.reauth.log.length > 0">
+            <div
+              id="reauth-log"
+              class="bg-gray-800 border border-gray-700 rounded p-2 h-28 overflow-y-auto log-scroll space-y-0.5"
+            >
+              <template x-for="(line, i) in logs.reauth.log" :key="i">
+                <div class="text-[10px] text-gray-400 font-mono" x-text="line"></div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <template x-if="logs.error && !logs.ssoExpired">
+        <div class="text-xs text-red-400 bg-red-950 border border-red-800 rounded p-2" x-text="logs.error"></div>
+      </template>
+    </aside>
+
+    <!-- Main: results -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Toolbar -->
+      <div class="px-4 py-2 border-b border-gray-800 flex items-center gap-3 bg-gray-900/50">
+        <input
+          type="text"
+          x-model="logs.searchQuery"
+          placeholder="Search logs..."
+          class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+        />
+        <span class="text-xs text-gray-500" x-text="`${filteredEntries.length} entries`"></span>
+
+        <!-- Progress indicators -->
+        <template x-if="logs.status === 'streaming'">
+          <div class="flex items-center gap-2 text-xs text-gray-500">
+            <svg class="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span x-text="logs.currentProgress"></span>
+          </div>
+        </template>
+
+        <button
+          @click="exportCsv()"
+          :disabled="logs.entries.length === 0"
+          class="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-sm rounded transition-colors"
+        >Export CSV</button>
+      </div>
+
+      <!-- Results table -->
+      <div class="flex-1 overflow-y-auto log-scroll">
+        <template x-if="logs.entries.length === 0 && logs.status !== 'streaming'">
+          <div class="p-6 text-center text-gray-600 text-sm">No log entries. Select instances, set a date range, and click Fetch Logs.</div>
+        </template>
+        <template x-if="logs.entries.length > 0 || filteredEntries.length > 0">
+          <table class="w-full text-xs">
+            <thead class="sticky top-0 bg-gray-900 border-b border-gray-800 z-10">
+              <tr>
+                <th class="px-3 py-2 text-left text-gray-500 font-medium whitespace-nowrap w-32">Instance</th>
+                <th class="px-3 py-2 text-left text-gray-500 font-medium whitespace-nowrap w-44">Timestamp</th>
+                <th class="px-3 py-2 text-left text-gray-500 font-medium whitespace-nowrap w-20">Level</th>
+                <th class="px-3 py-2 text-left text-gray-500 font-medium whitespace-nowrap w-24">Category</th>
+                <th class="px-3 py-2 text-left text-gray-500 font-medium">Message</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800/50">
+              <template x-for="(entry, i) in filteredEntries" :key="i">
+                <tr
+                  class="hover:bg-gray-800/50 transition-colors cursor-pointer"
+                  :class="{
+                    'bg-red-950/30': entry.level === 'FATAL' || entry.level === 'PANIC',
+                  }"
+                  @click="jumpToMetrics(entry.timestamp)"
+                  title="Click to view metrics at this timestamp"
+                >
+                  <td class="px-3 py-1.5 text-gray-500 truncate max-w-[128px]" :title="entry.instance" x-text="entry.instance"></td>
+                  <td class="px-3 py-1.5 text-gray-500 whitespace-nowrap" x-text="entry.timestamp"></td>
+                  <td class="px-3 py-1.5 whitespace-nowrap">
+                    <span
+                      class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                      :class="{
+                        'bg-red-900 text-red-200': entry.level === 'FATAL' || entry.level === 'PANIC',
+                        'text-red-300': entry.level === 'ERROR',
+                        'text-yellow-300': entry.level === 'WARNING' || entry.level === 'WARN',
+                        'text-gray-400': !['FATAL','PANIC','ERROR','WARNING','WARN'].includes(entry.level),
+                      }"
+                      x-text="entry.level"
+                    ></span>
+                  </td>
+                  <td class="px-3 py-1.5 text-gray-500 whitespace-nowrap" x-text="entry.category"></td>
+                  <td class="px-3 py-1.5 text-gray-300 break-all" x-text="entry.message"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+    </div>
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Metrics & Events Tab
+       ═══════════════════════════════════════════════════════════════ -->
+  <main x-show="activeTab === 'metrics'" class="flex h-[calc(100vh-49px)] overflow-hidden">
+
+    <!-- Left sidebar -->
+    <aside class="w-72 bg-gray-900 border-r border-gray-800 flex flex-col p-4 gap-4 overflow-y-auto">
+
+      <!-- Shared from Logs notice -->
+      <div class="text-[10px] text-gray-600 bg-gray-800/50 rounded px-2 py-1.5">
+        Profile, region, instances &amp; date range are shared with the RDS Logs tab.
+      </div>
+
+      <!-- Profile (read-only mirror) -->
+      <div>
+        <label class="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">AWS Profile</label>
+        <div class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-300 truncate" x-text="logs.profile || '—'"></div>
+      </div>
+
+      <!-- Region (read-only mirror) -->
+      <div>
+        <label class="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Region</label>
+        <div class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-300" x-text="logs.region || '—'"></div>
+      </div>
+
+      <!-- Instances: show all loaded, override selection for metrics -->
+      <template x-if="logs.instances.length > 0">
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Instances</span>
+            <div class="flex gap-2 text-[10px] text-gray-600">
+              <button @click="metrics.instanceOverrides.forEach((_,k,m)=>m.set(k,true)); metrics._refreshOverrides()" class="hover:text-gray-400">All</button>
+              <button @click="metrics.instanceOverrides.forEach((_,k,m)=>m.set(k,false)); metrics._refreshOverrides()" class="hover:text-gray-400">None</button>
+            </div>
+          </div>
+          <template x-for="inst in logs.instances" :key="inst.id">
+            <label class="flex items-center gap-2 p-1.5 rounded border cursor-pointer transition-colors"
+              :class="metrics.instanceOverrides.get(inst.id) !== false ? 'border-blue-700 bg-blue-950/30' : 'border-gray-700 bg-gray-800/30'">
+              <input type="checkbox"
+                :checked="metrics.instanceOverrides.get(inst.id) !== false"
+                @change="metrics.instanceOverrides.set(inst.id, $event.target.checked); metrics._refreshOverrides()"
+                class="accent-blue-500 shrink-0" />
+              <span class="text-xs text-gray-200 truncate" x-text="inst.id"></span>
+            </label>
+          </template>
+        </div>
+      </template>
+      <template x-if="logs.instances.length === 0">
+        <div class="text-xs text-gray-600">Load instances in the RDS Logs tab first.</div>
+      </template>
+
+      <!-- Date range (read-only mirror) -->
+      <div class="space-y-1.5">
+        <span class="block text-xs font-medium text-gray-400 uppercase tracking-wider">Date Range</span>
+        <div class="text-xs text-gray-400 bg-gray-800 border border-gray-700 rounded px-2 py-1.5">
+          <div x-text="logs.fromDate || '—'"></div>
+          <div class="text-gray-600 text-[10px]">to</div>
+          <div x-text="logs.toDate || '—'"></div>
+        </div>
+      </div>
+
+      <!-- Load Metrics button -->
+      <button
+        @click="fetchMetrics()"
+        :disabled="metrics.status === 'loading' || logs.instances.filter(i=>i.enabled).length === 0"
+        class="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-2 px-4 rounded transition-colors"
+      >
+        <span x-text="metrics.status === 'loading' ? 'Loading...' : 'Load Metrics & Events'"></span>
+      </button>
+
+      <!-- ── Teleport Config ─────────────────── -->
+      <div class="border-t border-gray-800 pt-3 space-y-3">
+        <span class="block text-xs font-medium text-gray-400 uppercase tracking-wider">Teleport Config</span>
+
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-0.5 uppercase">Proxy Address</label>
+          <input type="text" x-model="metrics.tsh.proxy"
+            @change="metrics._saveTshConfig()"
+            placeholder="prod.teleport.example.com"
+            class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+        </div>
+
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-0.5 uppercase">DB User</label>
+          <input type="text" x-model="metrics.tsh.dbUser"
+            @change="metrics._saveTshConfig()"
+            placeholder="dba_user"
+            class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+        </div>
+
+        <!-- Optional 3rd field -->
+        <div>
+          <div class="flex items-center justify-between mb-0.5">
+            <label class="text-[10px] text-gray-500 uppercase" x-text="metrics.tsh.customLabel || 'Custom Field'"></label>
+            <button @click="metrics.tsh.showCustom = !metrics.tsh.showCustom; metrics._saveTshConfig()"
+              class="text-[10px] text-gray-600 hover:text-gray-400">
+              <span x-text="metrics.tsh.showCustom ? 'Hide' : 'Add field'"></span>
+            </button>
+          </div>
+          <template x-if="metrics.tsh.showCustom">
+            <div class="space-y-1">
+              <input type="text" x-model="metrics.tsh.customLabel"
+                @change="metrics._saveTshConfig()"
+                placeholder="Label (e.g. Environment)"
+                class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-[10px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+              <input type="text" x-model="metrics.tsh.customValue"
+                @change="metrics._saveTshConfig()"
+                placeholder="Value"
+                class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+            </div>
+          </template>
+        </div>
+
+        <!-- Teleport DB name override per selected instance -->
+        <template x-if="metrics.selectedInstances.length > 0">
+          <div class="space-y-1">
+            <label class="block text-[10px] text-gray-500 uppercase">Teleport DB Names</label>
+            <template x-for="inst in metrics.selectedInstances" :key="inst.id">
+              <div class="flex items-center gap-1">
+                <span class="text-[10px] text-gray-600 truncate w-20 shrink-0" x-text="inst.id" :title="inst.id"></span>
+                <input type="text"
+                  :value="metrics.tsh.dbNames[inst.id] ?? inst.id"
+                  @input="metrics.tsh.dbNames[inst.id] = $event.target.value; metrics._saveTshConfig()"
+                  class="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-0.5 text-[10px] text-gray-200 focus:outline-none focus:border-blue-500" />
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- Teleport login status -->
+        <div class="space-y-1.5">
+          <button @click="checkTshStatus()"
+            :disabled="!metrics.tsh.proxy"
+            class="w-full bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-xs text-gray-200 py-1.5 px-3 rounded transition-colors">
+            Check Teleport Status
+          </button>
+
+          <template x-if="metrics.tsh.status !== null">
+            <div :class="metrics.tsh.status.loggedIn ? 'text-green-400 bg-green-950 border-green-800' : 'text-amber-400 bg-amber-950 border-amber-800'"
+              class="text-[10px] border rounded px-2 py-1.5">
+              <span x-text="metrics.tsh.status.loggedIn ? '✓ Logged in' : '✗ Not logged in'"></span>
+              <template x-if="metrics.tsh.status.detail">
+                <div class="text-gray-500 mt-0.5 truncate" x-text="metrics.tsh.status.detail"></div>
+              </template>
+            </div>
+          </template>
+
+          <button @click="tshLogin()"
+            :disabled="metrics.tsh.logging || !metrics.tsh.proxy"
+            class="w-full bg-purple-700 hover:bg-purple-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors">
+            <span x-text="metrics.tsh.logging ? 'Logging in...' : 'Teleport Login'"></span>
+          </button>
+
+          <template x-if="metrics.tsh.log.length > 0">
+            <div id="tsh-log" class="bg-gray-800 border border-gray-700 rounded p-2 h-24 overflow-y-auto log-scroll space-y-0.5">
+              <template x-for="(line, i) in metrics.tsh.log" :key="i">
+                <div class="text-[10px] text-gray-400 font-mono" x-text="line"></div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <!-- Query DBA button -->
+        <button @click="queryDba()"
+          :disabled="metrics.tsh.querying || !metrics.tsh.proxy || !metrics.tsh.dbUser || metrics.selectedInstances.length === 0"
+          class="w-full bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors">
+          <span x-text="metrics.tsh.querying ? 'Querying DBA...' : 'Query DBA Database'"></span>
+        </button>
+        <template x-if="metrics.tsh.queryError">
+          <div class="text-[10px] text-red-400 bg-red-950 border border-red-800 rounded p-2" x-text="metrics.tsh.queryError"></div>
+        </template>
+      </div>
+
+    </aside>
+
+    <!-- Main content area -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Focus timestamp banner -->
+      <template x-if="metrics.focusTimestamp">
+        <div class="px-4 py-1.5 bg-blue-950 border-b border-blue-800 flex items-center justify-between">
+          <span class="text-xs text-blue-300">
+            Zoomed to log entry at <strong x-text="metrics.focusTimestamp"></strong> ± 5 min
+          </span>
+          <button @click="metrics.focusTimestamp = null; renderAllCharts()" class="text-[10px] text-blue-500 hover:text-blue-300">
+            Reset zoom
+          </button>
+        </div>
+      </template>
+
+      <!-- Loading / empty state -->
+      <template x-if="metrics.status === 'idle'">
+        <div class="flex-1 flex items-center justify-center text-gray-600 text-sm">
+          Select instances in RDS Logs tab and click Load Metrics &amp; Events.
+        </div>
+      </template>
+
+      <template x-if="metrics.status === 'loading'">
+        <div class="flex-1 flex items-center justify-center gap-3 text-gray-500 text-sm">
+          <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          <span x-text="metrics.progress || 'Loading metrics...'"></span>
+        </div>
+      </template>
+
+      <!-- Results: scrollable main area -->
+      <template x-if="metrics.status === 'done'">
+        <div class="flex-1 overflow-y-auto log-scroll p-4 space-y-8">
+
+          <!-- ── Per-instance metric sections ── -->
+          <template x-for="(instData, idx) in metrics.instanceData" :key="instData.instance">
+            <div class="space-y-4">
+              <h2 class="text-sm font-semibold text-gray-300 border-b border-gray-800 pb-1" x-text="instData.instance"></h2>
+
+              <!-- CW chart groups -->
+              <div>
+                <p class="text-xs text-gray-500 uppercase tracking-wider mb-3">CloudWatch Metrics</p>
+                <div class="grid grid-cols-2 gap-4">
+                  <template x-for="grp in instData.cwGroups" :key="grp.id">
+                    <div class="bg-gray-900 border border-gray-800 rounded p-3">
+                      <p class="text-[11px] text-gray-400 mb-2" x-text="grp.title"></p>
+                      <div class="relative h-36">
+                        <canvas :id="`chart-cw-${instData.instance}-${grp.id}`"></canvas>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- PI chart groups (if available) -->
+              <template x-if="instData.piEnabled && instData.piGroups.length > 0">
+                <div>
+                  <p class="text-xs text-gray-500 uppercase tracking-wider mb-3">Performance Insights</p>
+                  <div class="grid grid-cols-2 gap-4">
+                    <template x-for="grp in instData.piGroups" :key="grp.id">
+                      <div class="bg-gray-900 border border-gray-800 rounded p-3">
+                        <p class="text-[11px] text-gray-400 mb-2" x-text="grp.title"></p>
+                        <div class="relative h-36">
+                          <canvas :id="`chart-pi-${instData.instance}-${grp.id}`"></canvas>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <template x-if="!instData.piEnabled">
+                <p class="text-[10px] text-gray-600">Performance Insights not enabled for this instance.</p>
+              </template>
+            </div>
+          </template>
+
+          <!-- ── RDS Events ── -->
+          <div class="space-y-2">
+            <h2 class="text-sm font-semibold text-gray-300 border-b border-gray-800 pb-1">RDS Events</h2>
+            <template x-if="metrics.events.length === 0">
+              <p class="text-xs text-gray-600">No relevant events found in this time range.</p>
+            </template>
+            <template x-if="metrics.events.length > 0">
+              <table class="w-full text-xs">
+                <thead class="sticky top-0 bg-gray-950 border-b border-gray-800 z-10">
+                  <tr>
+                    <th class="px-3 py-2 text-left text-gray-500 font-medium w-36">Timestamp</th>
+                    <th class="px-3 py-2 text-left text-gray-500 font-medium w-28">Instance</th>
+                    <th class="px-3 py-2 text-left text-gray-500 font-medium w-20">Severity</th>
+                    <th class="px-3 py-2 text-left text-gray-500 font-medium w-32">Categories</th>
+                    <th class="px-3 py-2 text-left text-gray-500 font-medium">Message</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-800/50">
+                  <template x-for="(ev, i) in metrics.events" :key="i">
+                    <tr class="hover:bg-gray-800/40">
+                      <td class="px-3 py-1.5 text-gray-500 whitespace-nowrap text-[10px]" x-text="ev.date"></td>
+                      <td class="px-3 py-1.5 text-gray-400 truncate max-w-[112px]" x-text="ev.instance" :title="ev.instance"></td>
+                      <td class="px-3 py-1.5">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                          :class="{
+                            'bg-red-900 text-red-200':    ev.severity === 'critical',
+                            'bg-amber-900 text-amber-200': ev.severity === 'warning',
+                            'bg-gray-700 text-gray-300':   ev.severity === 'info',
+                          }"
+                          x-text="ev.severity"></span>
+                      </td>
+                      <td class="px-3 py-1.5 text-gray-500 text-[10px]" x-text="(ev.categories||[]).join(', ')"></td>
+                      <td class="px-3 py-1.5 text-gray-300" x-text="ev.message"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </template>
+          </div>
+
+          <!-- ── DBA Query Results ── -->
+          <div class="space-y-2" x-show="metrics.tsh.results.length > 0">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-1">
+              <h2 class="text-sm font-semibold text-gray-300">Top Queries (DBA — perf schema)</h2>
+              <span class="text-[10px] text-gray-600" x-text="`${metrics.tsh.results.length} rows · sorted by total latency`"></span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-[11px] whitespace-nowrap">
+                <thead class="sticky top-0 bg-gray-950 border-b border-gray-800 z-10">
+                  <tr>
+                    <th class="px-2 py-2 text-left text-gray-500 font-medium">AsOfDate</th>
+                    <th class="px-2 py-2 text-left text-gray-500 font-medium">Schema</th>
+                    <th class="px-2 py-2 text-left text-gray-500 font-medium max-w-xs">Digest (normalized query)</th>
+                    <th class="px-2 py-2 text-right text-gray-500 font-medium">Execs</th>
+                    <th class="px-2 py-2 text-right text-gray-500 font-medium">Avg ms</th>
+                    <th class="px-2 py-2 text-right text-gray-500 font-medium">Max ms</th>
+                    <th class="px-2 py-2 text-right text-gray-500 font-medium">P95 ms</th>
+                    <th class="px-2 py-2 text-right text-gray-500 font-medium">P99 ms</th>
+                    <th class="px-2 py-2 text-right text-gray-500 font-medium">Lock ms</th>
+                    <th class="px-2 py-2 text-right text-gray-500 font-medium">No-idx</th>
+                    <th class="px-2 py-2 text-right text-gray-500 font-medium">Full-join</th>
+                    <th class="px-2 py-2 text-right text-gray-500 font-medium">Tmp disk</th>
+                    <th class="px-2 py-2 text-right text-gray-500 font-medium">Errors</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-800/40">
+                  <template x-for="(row, i) in metrics.tsh.results" :key="i">
+                    <tr class="hover:bg-gray-800/40"
+                      :class="{'bg-red-950/20': row.SUM_NO_INDEX_USED > 0 || row.SUM_SELECT_FULL_JOIN > 0}">
+                      <td class="px-2 py-1 text-gray-500" x-text="(row.AsOfDate||'').replace('T',' ').slice(0,19)"></td>
+                      <td class="px-2 py-1 text-blue-400" x-text="row.SCHEMA_NAME"></td>
+                      <td class="px-2 py-1 text-gray-300 max-w-xs truncate" :title="row.DIGEST_TEXT" x-text="row.DIGEST_TEXT"></td>
+                      <td class="px-2 py-1 text-right text-gray-400" x-text="row.COUNT_STAR"></td>
+                      <td class="px-2 py-1 text-right" :class="row.AVG_LATENCY_MS > 1000 ? 'text-red-400' : row.AVG_LATENCY_MS > 100 ? 'text-amber-400' : 'text-gray-400'" x-text="row.AVG_LATENCY_MS"></td>
+                      <td class="px-2 py-1 text-right text-gray-400" x-text="row.MAX_LATENCY_MS"></td>
+                      <td class="px-2 py-1 text-right text-gray-400" x-text="row.P95_MS"></td>
+                      <td class="px-2 py-1 text-right text-gray-400" x-text="row.P99_MS"></td>
+                      <td class="px-2 py-1 text-right text-gray-400" x-text="row.SUM_LOCK_MS"></td>
+                      <td class="px-2 py-1 text-right" :class="row.SUM_NO_INDEX_USED > 0 ? 'text-amber-400 font-semibold' : 'text-gray-600'" x-text="row.SUM_NO_INDEX_USED"></td>
+                      <td class="px-2 py-1 text-right" :class="row.SUM_SELECT_FULL_JOIN > 0 ? 'text-red-400 font-semibold' : 'text-gray-600'" x-text="row.SUM_SELECT_FULL_JOIN"></td>
+                      <td class="px-2 py-1 text-right" :class="row.SUM_CREATED_TMP_DISK_TABLES > 0 ? 'text-amber-400' : 'text-gray-600'" x-text="row.SUM_CREATED_TMP_DISK_TABLES"></td>
+                      <td class="px-2 py-1 text-right" :class="row.SUM_ERRORS > 0 ? 'text-red-400 font-semibold' : 'text-gray-600'" x-text="row.SUM_ERRORS"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </template>
+    </div>
+  </main>
+
+<script>
+function app() {
+  return {
+    activeTab: 'sso',
+
+    sso: {
+      startUrl: '',
+      ssoRegion: 'us-east-1',
+      appRegion: 'us-east-1',
+      format: 'sso-session',
+      overwrite: false,
+      status: 'idle',
+      log: [],
+      accounts: [],
+      generating: false,
+      generationResult: null,
+      error: null,
+    },
+
+    logs: {
+      profile: '',
+      region: 'us-east-1',
+      profiles: [],
+      instances: [],
+      loadingInstances: false,
+      fromDate: '',
+      toDate: '',
+      filters: ['errors', 'deadlocks', 'connections'],
+      availableFilters: [
+        { id: 'errors',      label: 'Errors (ERROR / FATAL / PANIC)' },
+        { id: 'deadlocks',   label: 'Deadlocks' },
+        { id: 'connections', label: 'Connection issues' },
+        { id: 'slow_query',  label: 'Slow queries' },
+        { id: 'replication', label: 'Replication errors' },
+        { id: 'storage',     label: 'Storage / InnoDB issues' },
+      ],
+      status: 'idle',
+      entries: [],
+      searchQuery: '',
+      currentProgress: '',
+      error: null,
+      ssoExpired: false,
+      reauth: { status: 'idle', log: [] },
+    },
+
+    awsCli: {
+      installed: true,   // optimistic default — checked on logs tab load
+      version: null,
+      installing: false,
+      log: [],
+    },
+
+    metrics: {
+      status: 'idle',   // idle | loading | done
+      progress: '',
+      instanceData: [], // [{instance, cwGroups, piGroups, piEnabled}]
+      events: [],
+      focusTimestamp: null,
+      instanceOverrides: new Map(), // inst.id -> bool (true = selected for metrics)
+      get selectedInstances() {
+        return (window._appRef?.logs.instances || [])
+          .filter(i => this.instanceOverrides.get(i.id) !== false);
+      },
+      _refreshOverrides() { /* triggers Alpine reactivity — no-op needed */ },
+
+      tsh: {
+        proxy:       localStorage.getItem('tsh_proxy')        || '',
+        dbUser:      localStorage.getItem('tsh_db_user')      || '',
+        customLabel: localStorage.getItem('tsh_custom_label') || 'Environment',
+        customValue: localStorage.getItem('tsh_custom_value') || '',
+        showCustom:  localStorage.getItem('tsh_show_custom')  === 'true',
+        dbNames: JSON.parse(localStorage.getItem('tsh_db_names') || '{}'),
+        status: null,
+        logging: false,
+        log: [],
+        querying: false,
+        results: [],
+        queryError: null,
+      },
+
+      _saveTshConfig() {
+        localStorage.setItem('tsh_proxy',        this.tsh.proxy);
+        localStorage.setItem('tsh_db_user',      this.tsh.dbUser);
+        localStorage.setItem('tsh_custom_label', this.tsh.customLabel);
+        localStorage.setItem('tsh_custom_value', this.tsh.customValue);
+        localStorage.setItem('tsh_show_custom',  String(this.tsh.showCustom));
+        localStorage.setItem('tsh_db_names',     JSON.stringify(this.tsh.dbNames));
+      },
+    },
+
+    get filteredEntries() {
+      const q = this.logs.searchQuery.toLowerCase();
+      if (!q) return this.logs.entries;
+      return this.logs.entries.filter(e =>
+        (e.message || '').toLowerCase().includes(q) ||
+        (e.instance || '').toLowerCase().includes(q) ||
+        (e.level || '').toLowerCase().includes(q) ||
+        (e.category || '').toLowerCase().includes(q)
+      );
+    },
+
+    // ── SSO ──────────────────────────────────
+
+    async discoverAccounts() {
+      this.sso.status = 'streaming';
+      this.sso.log = [];
+      this.sso.accounts = [];
+      this.sso.error = null;
+      this.sso.generationResult = null;
+
+      try {
+        const resp = await fetch('/api/sso/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            startUrl: this.sso.startUrl,
+            ssoRegion: this.sso.ssoRegion,
+          }),
+        });
+
+        await this._readSSEStream(resp, (event) => {
+          switch (event.type) {
+            case 'device_auth':
+              this.sso.log.push(`Opening browser for SSO login: ${event.url}`);
+              window.open(event.url, '_blank');
+              break;
+            case 'progress':
+              this.sso.log.push(event.message);
+              this._scrollSSOLog();
+              break;
+            case 'account':
+              this.sso.accounts.push({
+                ...event.account,
+                profileName: `${this._sanitize(event.account.accountName)}-${this._sanitize(event.account.roleName)}`,
+                selected: true,
+              });
+              break;
+            case 'done':
+              this.sso.log.push(`Discovery complete — ${event.total} account/role combinations found.`);
+              this._scrollSSOLog();
+              break;
+            case 'error':
+              this.sso.error = event.message;
+              this.sso.log.push(`Error: ${event.message}`);
+              break;
+          }
+        });
+      } catch (e) {
+        this.sso.error = e.message;
+      } finally {
+        this.sso.status = 'done';
+      }
+    },
+
+    async generateConfig() {
+      const selected = this.sso.accounts.filter(a => a.selected);
+      if (selected.length === 0) return;
+      this.sso.generating = true;
+      this.sso.generationResult = null;
+      try {
+        const resp = await fetch('/api/sso/generate-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accounts: selected,
+            startUrl: this.sso.startUrl,
+            ssoRegion: this.sso.ssoRegion,
+            appRegion: this.sso.appRegion,
+            overwrite: this.sso.overwrite,
+            format: this.sso.format,
+          }),
+        });
+        this.sso.generationResult = await resp.json();
+      } catch (e) {
+        this.sso.error = e.message;
+      } finally {
+        this.sso.generating = false;
+      }
+    },
+
+    _sanitize(name) {
+      return (name || '').replace(/[^a-zA-Z0-9\-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    },
+
+    _scrollSSOLog() {
+      this.$nextTick(() => {
+        const el = document.getElementById('sso-log');
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    // ── AWS CLI check + install ───────────────
+
+    async checkAwsCli() {
+      try {
+        const data = await fetch('/api/rds/aws-cli/check').then(r => r.json());
+        this.awsCli.installed = data.installed;
+        this.awsCli.version = data.version;
+      } catch (e) {
+        console.error('aws-cli check failed', e);
+      }
+    },
+
+    async installAwsCli() {
+      this.awsCli.installing = true;
+      this.awsCli.log = [];
+      try {
+        const resp = await fetch('/api/rds/aws-cli/install/stream');
+        await this._readSSEStream(resp, (event) => {
+          switch (event.type) {
+            case 'log':
+              this.awsCli.log.push(event.message);
+              this._scrollAwsCliLog();
+              break;
+            case 'done':
+              this.awsCli.log.push(event.message || '✓ Done! Restart the server then reload this page.');
+              this._scrollAwsCliLog();
+              this.awsCli.installing = false;
+              this.checkAwsCli();
+              break;
+            case 'error':
+              this.awsCli.log.push(`Error: ${event.message}`);
+              this._scrollAwsCliLog();
+              break;
+          }
+        });
+      } catch (e) {
+        this.awsCli.log.push(`Error: ${e.message}`);
+      } finally {
+        this.awsCli.installing = false;
+      }
+    },
+
+    _scrollAwsCliLog() {
+      this.$nextTick(() => {
+        const el = document.getElementById('awscli-log');
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    // ── RDS Logs ─────────────────────────────
+
+    async loadProfiles() {
+      if (this.logs.profiles.length > 0) return;
+      try {
+        const resp = await fetch('/api/rds/profiles');
+        const data = await resp.json();
+        this.logs.profiles = data.profiles || [];
+      } catch (e) {
+        console.error('Failed to load profiles', e);
+      }
+    },
+
+    async loadInstances() {
+      if (!this.logs.profile || !this.logs.region) return;
+      this.logs.loadingInstances = true;
+      this.logs.instances = [];
+      this.logs.error = null;
+      this.logs.ssoExpired = false;
+      try {
+        const resp = await fetch(`/api/rds/instances?profile=${encodeURIComponent(this.logs.profile)}&region=${encodeURIComponent(this.logs.region)}`);
+        const data = await resp.json();
+        if (data.ssoExpired) {
+          this.logs.ssoExpired = true;
+          this.logs.error = 'SSO token expired — click Re-authenticate to refresh.';
+          return;
+        }
+        this.logs.instances = (data.instances || [])
+          .filter(i => !i.error)
+          .map(i => ({ ...i, enabled: true }));
+        if (data.instances?.some(i => i.error)) {
+          this.logs.error = data.instances.find(i => i.error).error;
+        }
+      } catch (e) {
+        this.logs.error = e.message;
+      } finally {
+        this.logs.loadingInstances = false;
+      }
+    },
+
+    async reauthProfile() {
+      this.logs.reauth.status = 'streaming';
+      this.logs.reauth.log = [];
+      this.logs.ssoExpired = false;
+      this.logs.error = null;
+
+      try {
+        const resp = await fetch(`/api/rds/sso-login/stream?profile=${encodeURIComponent(this.logs.profile)}`);
+        await this._readSSEStream(resp, (event) => {
+          switch (event.type) {
+            case 'log':
+              this.logs.reauth.log.push(event.message);
+              this._scrollReauthLog();
+              break;
+            case 'done':
+              this.logs.reauth.log.push('✓ Re-authenticated successfully. Reloading instances...');
+              this._scrollReauthLog();
+              setTimeout(() => {
+                this.logs.reauth.status = 'done';
+                this.loadInstances();
+              }, 800);
+              break;
+            case 'error':
+              this.logs.reauth.log.push(`Error: ${event.message}`);
+              this.logs.error = event.message;
+              break;
+          }
+        });
+      } catch (e) {
+        this.logs.error = e.message;
+      } finally {
+        if (this.logs.reauth.status === 'streaming') this.logs.reauth.status = 'done';
+      }
+    },
+
+    _scrollReauthLog() {
+      this.$nextTick(() => {
+        const el = document.getElementById('reauth-log');
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    async fetchLogs() {
+      const enabledInstances = this.logs.instances.filter(i => i.enabled).map(i => i.id);
+      if (enabledInstances.length === 0) return;
+
+      this.logs.status = 'streaming';
+      this.logs.entries = [];
+      this.logs.error = null;
+      this.logs.currentProgress = '';
+
+      try {
+        const resp = await fetch('/api/rds/logs/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profile: this.logs.profile,
+            region: this.logs.region,
+            instances: enabledInstances,
+            fromDate: this.logs.fromDate,
+            toDate: this.logs.toDate,
+            filters: this.logs.filters,
+          }),
+        });
+
+        await this._readSSEStream(resp, (event) => {
+          switch (event.type) {
+            case 'progress':
+              this.logs.currentProgress = event.file
+                ? `${event.instance}: ${event.file}`
+                : `${event.instance}: ${event.message || ''}`;
+              break;
+            case 'entry':
+              this.logs.entries.push(event);
+              break;
+            case 'done':
+              this.logs.currentProgress = '';
+              break;
+            case 'error':
+              this.logs.error = event.message;
+              break;
+          }
+        });
+      } catch (e) {
+        this.logs.error = e.message;
+      } finally {
+        this.logs.status = 'done';
+      }
+    },
+
+    // ── Metrics & Events ─────────────────────
+
+    jumpToMetrics(timestamp) {
+      if (!timestamp) return;
+      this.metrics.focusTimestamp = timestamp;
+      this.activeTab = 'metrics';
+      this.$nextTick(() => this.renderAllCharts());
+    },
+
+    async fetchMetrics() {
+      const enabled = this.logs.instances.filter(i =>
+        this.metrics.instanceOverrides.get(i.id) !== false
+      );
+      if (enabled.length === 0) return;
+
+      this.metrics.status = 'loading';
+      this.metrics.instanceData = [];
+      this.metrics.events = [];
+      this.metrics.progress = '';
+
+      const params = new URLSearchParams({
+        profile:   this.logs.profile,
+        region:    this.logs.region,
+        instances: enabled.map(i => i.id).join(','),
+        fromDate:  this.logs.fromDate,
+        toDate:    this.logs.toDate,
+      });
+
+      try {
+        const resp = await fetch(`/api/metrics/stream?${params}`);
+        await this._readSSEStream(resp, (event) => {
+          switch (event.type) {
+            case 'progress':
+              this.metrics.progress = `Loading ${event.instance}...`;
+              break;
+            case 'metrics':
+              this.metrics.instanceData.push(event);
+              this.$nextTick(() => this._renderInstanceCharts(event));
+              break;
+            case 'events':
+              this.metrics.events = event.events || [];
+              break;
+            case 'error':
+              console.warn('Metrics error', event);
+              break;
+          }
+        });
+      } catch (e) {
+        console.error('fetchMetrics failed', e);
+      } finally {
+        this.metrics.status = 'done';
+        this.$nextTick(() => this.renderAllCharts());
+      }
+    },
+
+    renderAllCharts() {
+      for (const instData of this.metrics.instanceData) {
+        this._renderInstanceCharts(instData);
+      }
+    },
+
+    _renderInstanceCharts(instData) {
+      const focus = this.metrics.focusTimestamp ? new Date(this.metrics.focusTimestamp) : null;
+      const zoomMs = 5 * 60 * 1000; // ±5 minutes
+
+      const makeAnnotation = (focus) => focus ? {
+        annotations: {
+          line1: {
+            type: 'line',
+            xMin: focus,
+            xMax: focus,
+            borderColor: '#60a5fa',
+            borderWidth: 2,
+            borderDash: [4, 4],
+            label: { content: 'Log entry', display: true, position: 'start', color: '#60a5fa', font: { size: 10 } },
+          }
+        }
+      } : {};
+
+      const baseOptions = (group, focus) => ({
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#9ca3af', font: { size: 10 }, boxWidth: 10 } },
+          tooltip: { backgroundColor: '#1f2937', titleColor: '#e5e7eb', bodyColor: '#9ca3af' },
+          annotation: makeAnnotation(focus),
+        },
+        scales: {
+          x: {
+            type: 'time',
+            time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } },
+            ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 },
+            grid: { color: '#1f2937' },
+            ...(focus ? { min: new Date(focus - zoomMs), max: new Date(+focus + zoomMs) } : {}),
+          },
+          y: {
+            position: 'left',
+            title: { display: true, text: group.yLabel || '', color: '#6b7280', font: { size: 9 } },
+            ticks: { color: '#6b7280', font: { size: 9 } },
+            grid: { color: '#1f2937' },
+          },
+          ...(group.y2Label ? {
+            y2: {
+              position: 'right',
+              title: { display: true, text: group.y2Label, color: '#6b7280', font: { size: 9 } },
+              ticks: { color: '#6b7280', font: { size: 9 } },
+              grid: { drawOnChartArea: false },
+            }
+          } : {}),
+        },
+      });
+
+      const toDatasets = (metrics) => metrics.map(m => ({
+        label: m.label,
+        data: m.timestamps.map((t, i) => ({ x: new Date(t), y: m.values[i] })),
+        borderColor: m.color,
+        backgroundColor: m.color + '22',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.2,
+        yAxisID: m.yAxisID || 'y',
+      }));
+
+      const upsert = (canvasId, group, focus) => {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        if (canvas._chartInstance) {
+          canvas._chartInstance.destroy();
+        }
+        canvas._chartInstance = new Chart(canvas, {
+          type: 'line',
+          data: { datasets: toDatasets(group.metrics) },
+          options: baseOptions(group, focus),
+        });
+      };
+
+      // CW charts
+      for (const grp of instData.cwGroups || []) {
+        upsert(`chart-cw-${instData.instance}-${grp.id}`, grp, focus);
+      }
+      // PI charts
+      for (const grp of instData.piGroups || []) {
+        upsert(`chart-pi-${instData.instance}-${grp.id}`, grp, focus);
+      }
+    },
+
+    // ── Teleport ──────────────────────────────
+
+    async checkTshStatus() {
+      if (!this.metrics.tsh.proxy) return;
+      const resp = await fetch(`/api/teleport/status?proxy=${encodeURIComponent(this.metrics.tsh.proxy)}`);
+      this.metrics.tsh.status = await resp.json();
+    },
+
+    async tshLogin() {
+      if (!this.metrics.tsh.proxy) return;
+      this.metrics.tsh.logging = true;
+      this.metrics.tsh.log = [];
+      try {
+        const resp = await fetch(`/api/teleport/login/stream?proxy=${encodeURIComponent(this.metrics.tsh.proxy)}`);
+        await this._readSSEStream(resp, (event) => {
+          switch (event.type) {
+            case 'log':
+              this.metrics.tsh.log.push(event.log);
+              this._scrollTshLog();
+              // Surface browser-open URL from tsh output
+              if (event.log && event.log.includes('http')) {
+                const urlMatch = event.log.match(/https?:\/\/\S+/);
+                if (urlMatch) window.open(urlMatch[0], '_blank');
+              }
+              break;
+            case 'done':
+              this.metrics.tsh.log.push(event.status === 'success' ? '✓ Logged in.' : `✗ ${event.message}`);
+              this._scrollTshLog();
+              this.checkTshStatus();
+              break;
+          }
+        });
+      } finally {
+        this.metrics.tsh.logging = false;
+      }
+    },
+
+    _scrollTshLog() {
+      this.$nextTick(() => {
+        const el = document.getElementById('tsh-log');
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    async queryDba() {
+      const selected = this.metrics.selectedInstances;
+      if (selected.length === 0 || !this.metrics.tsh.proxy || !this.metrics.tsh.dbUser) return;
+
+      this.metrics.tsh.querying = true;
+      this.metrics.tsh.results = [];
+      this.metrics.tsh.queryError = null;
+
+      // Query each selected instance sequentially (tsh proxy db per instance)
+      const allRows = [];
+      for (const inst of selected) {
+        const tshDbName = this.metrics.tsh.dbNames[inst.id] || inst.id;
+        try {
+          const resp = await fetch('/api/teleport/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              proxy:     this.metrics.tsh.proxy,
+              tshDbName: tshDbName,
+              dbUser:    this.metrics.tsh.dbUser,
+              fromDate:  this.logs.fromDate,
+              toDate:    this.logs.toDate,
+              limit:     100,
+            }),
+          });
+          const data = await resp.json();
+          if (data.error) {
+            this.metrics.tsh.queryError = `${inst.id}: ${data.error}`;
+          } else {
+            allRows.push(...(data.rows || []).map(r => ({ ...r, _instance: inst.id })));
+          }
+        } catch (e) {
+          this.metrics.tsh.queryError = e.message;
+        }
+      }
+
+      // Sort combined results by total latency desc
+      allRows.sort((a, b) => (b.SUM_LATENCY_MS || 0) - (a.SUM_LATENCY_MS || 0));
+      this.metrics.tsh.results = allRows;
+      this.metrics.tsh.querying = false;
+    },
+
+    exportCsv() {
+      const headers = ['Instance', 'Timestamp', 'Level', 'Category', 'Message'];
+      const rows = this.filteredEntries.map(e => [
+        e.instance || '',
+        e.timestamp || '',
+        e.level || '',
+        e.category || '',
+        `"${(e.message || '').replace(/"/g, '""')}"`,
+      ]);
+      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rds-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+
+    // ── Shared SSE reader ─────────────────────
+
+    async _readSSEStream(response, onEvent) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              onEvent(event);
+            } catch (e) {
+              // malformed JSON — skip
+            }
+          }
+        }
+      }
+    },
+
+    init() {
+      // Default date range: last 24 hours
+      const now = new Date();
+      const yesterday = new Date(now - 24 * 60 * 60 * 1000);
+      const fmt = d => d.toISOString().slice(0, 16);
+      this.logs.toDate = fmt(now);
+      this.logs.fromDate = fmt(yesterday);
+      // Check AWS CLI on startup
+      this.checkAwsCli();
+      // Store global ref for metrics.selectedInstances getter
+      window._appRef = this;
+      // Sync instance overrides when logs.instances changes
+      this.$watch('logs.instances', (instances) => {
+        const overrides = this.metrics.instanceOverrides;
+        instances.forEach(i => {
+          if (!overrides.has(i.id)) overrides.set(i.id, true);
+        });
+      });
+    },
+  };
+}
+</script>
+</body>
+</html>

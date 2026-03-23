@@ -3,6 +3,7 @@ import { getJiraReleases } from './jira.js';
 import { getDatabaseChanges } from './database.js';
 import { getConfigChanges } from './config.js';
 import { detectCorrelations } from './correlations.js';
+import { assessAllRisks } from './risk-detector.js';
 
 export async function getSummary(
   incidentTime: string,
@@ -24,13 +25,20 @@ export async function getSummary(
     getConfigChanges(timeWindow.startTime, timeWindow.endTime),
   ]);
 
-  const correlations = detectCorrelations(jiraChanges, databaseChanges, configChanges);
+  // Apply risk assessment to all changes
+  const riskyChanges = assessAllRisks(jiraChanges, databaseChanges, configChanges);
+
+  const correlations = detectCorrelations(
+    riskyChanges.jiraChanges,
+    riskyChanges.databaseChanges,
+    riskyChanges.configChanges
+  );
 
   return {
     timeWindow,
-    jiraChanges,
-    databaseChanges,
-    configChanges,
+    jiraChanges: riskyChanges.jiraChanges,
+    databaseChanges: riskyChanges.databaseChanges,
+    configChanges: riskyChanges.configChanges,
     correlations,
   };
 }

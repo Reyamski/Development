@@ -49,10 +49,17 @@ export default function JiraTab() {
                 <span className="px-2 py-1 text-xs rounded bg-gray-700 text-gray-200">
                   {release.status}
                 </span>
+                <RiskBadge risk={release.risk} size="sm" />
               </div>
               <h3 className="text-lg font-semibold text-gray-100">{release.summary}</h3>
             </div>
           </div>
+
+          {release.risk && release.risk.level !== 'low' && (
+            <div className="mb-3">
+              <RiskBadge risk={release.risk} showDetails />
+            </div>
+          )}
 
           <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
             <Calendar className="w-4 h-4" />

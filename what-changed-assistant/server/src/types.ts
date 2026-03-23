@@ -1,9 +1,54 @@
+import type { ChildProcess } from 'child_process';
+
+// ===== Teleport Types =====
+
+export interface TeleportTunnel {
+  process: ChildProcess;
+  host: string;
+  port: number;
+  dbName: string;
+  dbUser: string;
+}
+
+export interface TeleportInstance {
+  name: string;
+  uri: string;
+  accountId: string;
+  region: string;
+  instanceId: string;
+}
+
+export interface TeleportStatus {
+  loggedIn: boolean;
+  username: string;
+  cluster?: string;
+}
+
+// ===== What Changed Types =====
+
 export interface TimeWindow {
   incidentTime: string;
   lookbackHours: number;
   startTime: string;
   endTime: string;
 }
+
+export interface RiskAssessment {
+  score: number; // 0-100
+  level: 'low' | 'medium' | 'high' | 'critical';
+  reasons: string[];
+  flags: RiskFlag[];
+}
+
+export type RiskFlag = 
+  | 'no_jira_ticket'
+  | 'no_approval'
+  | 'off_hours'
+  | 'production_direct'
+  | 'collision_risk'
+  | 'high_impact_table'
+  | 'breaking_change'
+  | 'missing_rollback';
 
 export interface JiraRelease {
   id: string;
@@ -18,6 +63,7 @@ export interface JiraRelease {
   description: string | null;
   labels: string[];
   components: string[];
+  risk?: RiskAssessment;
 }
 
 export interface DatabaseChange {
@@ -29,6 +75,7 @@ export interface DatabaseChange {
   description: string;
   severity: 'low' | 'medium' | 'high';
   details: any;
+  risk?: RiskAssessment;
 }
 
 export interface SchemaChange {
@@ -66,6 +113,7 @@ export interface ConfigChange {
   newValue: string;
   appliedBy: string | null;
   requiresReboot: boolean;
+  risk?: RiskAssessment;
 }
 
 export interface RdsParameterChange {

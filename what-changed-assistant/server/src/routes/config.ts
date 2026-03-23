@@ -25,15 +25,19 @@ router.get('/changes', async (req, res) => {
 
 router.get('/rds-parameters', async (req, res) => {
   try {
-    const dbInstance = req.query.dbInstance as string;
+    const dbInstanceId = req.query.dbInstanceId as string;
+    const accountId = req.query.accountId as string;
+    const region = req.query.region as string;
     const startTime = req.query.startTime as string;
     const endTime = req.query.endTime as string;
 
-    if (!dbInstance || !startTime || !endTime) {
-      return res.status(400).json({ error: 'dbInstance, startTime, and endTime are required' });
+    if (!dbInstanceId || !accountId || !region || !startTime || !endTime) {
+      return res.status(400).json({ 
+        error: 'dbInstanceId, accountId, region, startTime, and endTime are required' 
+      });
     }
 
-    const parameters = await getRdsParameterChanges(dbInstance, startTime, endTime);
+    const parameters = await getRdsParameterChanges(dbInstanceId, accountId, region, startTime, endTime);
     res.json(parameters);
   } catch (error: any) {
     console.error('Error fetching RDS parameter changes:', error);

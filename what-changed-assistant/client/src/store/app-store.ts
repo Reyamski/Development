@@ -2,8 +2,10 @@ import { create } from 'zustand';
 import { ChangesSummary, TimeWindow, JiraRelease, DatabaseChange, ConfigChange, Correlation } from '../api/types';
 
 interface AppState {
+  mode: 'daily' | 'incident';
   incidentTime: string;
   lookbackHours: number;
+  autoRefresh: boolean;
   timeWindow: TimeWindow | null;
   jiraChanges: JiraRelease[];
   databaseChanges: DatabaseChange[];
@@ -14,8 +16,10 @@ interface AppState {
   selectedChangeId: string | null;
   activeTab: 'summary' | 'jira' | 'database' | 'config';
   
+  setMode: (mode: 'daily' | 'incident') => void;
   setIncidentTime: (time: string) => void;
   setLookbackHours: (hours: number) => void;
+  setAutoRefresh: (enabled: boolean) => void;
   setSummary: (summary: ChangesSummary) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -25,8 +29,10 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
+  mode: 'daily',
   incidentTime: '',
-  lookbackHours: 6,
+  lookbackHours: 24,
+  autoRefresh: true,
   timeWindow: null,
   jiraChanges: [],
   databaseChanges: [],
@@ -37,8 +43,10 @@ export const useAppStore = create<AppState>((set) => ({
   selectedChangeId: null,
   activeTab: 'summary',
   
+  setMode: (mode) => set({ mode, lookbackHours: mode === 'daily' ? 24 : 6 }),
   setIncidentTime: (time) => set({ incidentTime: time }),
   setLookbackHours: (hours) => set({ lookbackHours: hours }),
+  setAutoRefresh: (enabled) => set({ autoRefresh: enabled }),
   setSummary: (summary) => set({
     timeWindow: summary.timeWindow,
     jiraChanges: summary.jiraChanges,

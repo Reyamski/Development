@@ -61,13 +61,14 @@ This is the **first question** asked in almost every incident investigation. Ins
 ### Prerequisites
 - Node.js 18+
 - npm 8+
-- AWS CLI configured with SSO
-- Teleport CLI (`tsh`) configured
-- Access to Jira and Confluence APIs
+- **AWS CLI configured with SSO** (`aws sso login`)
+- **Teleport CLI** (`tsh`) installed and configured
+- **Database Access** via Teleport to MySQL instances with `dba` schema
+- **AWS Secrets Manager** (production) OR local `.env` file (local dev)
 
 ### Installation
 
-1. **Clone the repo** (if not already):
+1. **Navigate to project**:
    ```bash
    cd dbatools/what-changed-assistant
    ```
@@ -77,7 +78,16 @@ This is the **first question** asked in almost every incident investigation. Ins
    npm install
    ```
 
-3. **Configure environment variables** (create `.env` in `server/` folder):
+3. **Configure credentials** (Choose A or B):
+
+   #### **Option A: Local Development (.env file)**
+   
+   Copy `.env.example` to `.env` and fill in your values:
+   ```bash
+   cp .env.example .env
+   ```
+
+   Edit `.env`:
    ```env
    # Jira Configuration
    JIRA_URL=https://your-company.atlassian.net
@@ -88,17 +98,50 @@ This is the **first question** asked in almost every incident investigation. Ins
    CONFLUENCE_URL=https://your-company.atlassian.net/wiki
    CONFLUENCE_API_TOKEN=your-confluence-api-token
 
-   # Database Configuration
-   TELEPORT_PROXY=teleport.your-company.com:443
-   DB_USER=dba_user
-   DB_PASSWORD=your-db-password
-
-   # AWS Configuration
-   AWS_PROFILE=your-aws-profile
-   AWS_REGION=us-east-1
+   # AWS Configuration (auto-detected from ~/.aws/config)
+   # AWS_REGION=us-east-1  # Optional override
    ```
 
-4. **Run the app**:
+   **Important:** `.env` file is git-ignored and never committed.
+
+   #### **Option B: Production (AWS Secrets Manager)**
+   
+   Create secrets in AWS Secrets Manager:
+   ```bash
+   # Run these once in your AWS account
+   aws secretsmanager create-secret \
+     --name prod/jira/api-token \
+     --secret-string "your-jira-token" \
+     --region us-east-1
+
+   aws secretsmanager create-secret \
+     --name prod/jira/url \
+     --secret-string "https://your-company.atlassian.net" \
+     --region us-east-1
+
+   aws secretsmanager create-secret \
+     --name prod/jira/email \
+     --secret-string "your-email@company.com" \
+     --region us-east-1
+   ```
+
+   The app automatically uses Secrets Manager if `.env` is not present.
+
+4. **Set up AWS SSO** (one-time):
+   ```bash
+   aws sso login --sso-session your-session-name
+   ```
+
+   The app auto-detects SSO config from `~/.aws/config` and creates profiles as needed.
+
+5. **Set up Teleport** (one-time):
+   ```bash
+   tsh login your-cluster.teleport.example.com
+   ```
+
+   The app auto-detects `tsh` binary and uses browser-based SSO.
+
+6. **Run the app**:
    ```bash
    npm run dev
    ```
@@ -107,18 +150,176 @@ This is the **first question** asked in almost every incident investigation. Ins
    - Backend server on `http://localhost:4000`
    - Frontend dev server on `http://localhost:5175` (auto-opens in browser)
 
+### First-Time Setup Checklist
+
+- [ ] AWS SSO configured in `~/.aws/config` with an `[sso-session]` block
+- [ ] Run `aws sso login --sso-session <name>` at least once
+- [ ] Teleport CLI (`tsh`) installed (auto-detects from PATH or standard locations)
+- [ ] Run `tsh login <cluster>` at least once
+- [ ] Jira API token created (Admin → API tokens → Create)
+- [ ] Either `.env` file created OR AWS Secrets Manager configured
+- [ ] Dependencies installed (`npm install`)
+
+---
+
+## Systematic Testing Guide
+
+### 🧪 Test 1: Teleport Connection (Database Access)
+
+**Purpose:** Verify Teleport SSO and MySQL tunnel work correctly.
+
+**Steps:**
+1. Open app at `http://localhost:5175`
+2. Check Teleport sidebar (should show cluster selector)
+3. Select your Teleport cluster → Browser opens for SSO login
+4. After login, select a MySQL database instance
+5. Click "Connect" → Should see "Connected" status
+
+**Expected Result:** 
+- ✅ Teleport login via browser SSO (no manual credentials)
+- ✅ MySQL tunnel established on random localhost port
+- ✅ Connection status shows "Connected"
+
+**Troubleshooting:**
+- If `tsh` not found: Install Teleport CLI or Teleport Connect app
+- If login fails: Run `tsh login <cluster>` manually first
+- If connection fails: Check database permissions
+
+---
+
+### 🧪 Test 2: Database Queries (DBA Schema)
+
+**Purpose:** Verify we can query `dba.events_statements_summary_by_digest_history`.
+
+**Steps:**
+1. After connecting (Test 1), set incident time to "1 hour ago"
+2. Set lookback to "6 hours"
+3. Click "Fetch Changes"
+4. Go to "Database" tab
+
+**Expected Result:**
+- ✅ Shows real query digest changes from `dba schema`
+- ✅ SQL queries have syntax highlighting
+- ✅ Execution counts and latencies are real data
+- ✅ "New" or "Spike" badges on query patterns
+
+**Troubleshooting:**
+- If empty results: Check if `dba.events_statements_summary_by_digest_history` table exists
+- If error: Check database permissions for `dba` schema
+- If slow: Query has 10s timeout, check DB performance
+
+---
+
+### 🧪 Test 3: AWS SSO + CloudWatch
+
+**Purpose:** Verify AWS SSO auto-login and CloudWatch metric fetching.
+
+**Steps:**
+1. Run `aws sso login --sso-session <your-session>` (one-time)
+2. In app, the backend auto-detects SSO from `~/.aws/config`
+3. Fetch changes for an RDS instance
+4. Go to "Config" tab
+
+**Expected Result:**
+- ✅ No AWS credentials in code (auto-detected from SSO)
+- ✅ Profile `rds-dba-{accountId}` auto-created if needed
+- ✅ CloudWatch metrics fetched successfully
+- ✅ RDS parameter changes displayed
+
+**Troubleshooting:**
+- If "Not logged in": Run `aws sso login`
+- If profile error: Check `~/.aws/config` has `[sso-session]` block
+- If permissions error: Ensure role has CloudWatch/RDS read access
+
+---
+
+### 🧪 Test 4: Jira API (Hybrid Auth)
+
+**Purpose:** Verify Jira integration with hybrid auth (env + Secrets Manager).
+
+**Steps:**
+1. **Local dev:** Set `JIRA_API_TOKEN` in `.env`
+2. **Production:** Ensure AWS Secrets Manager has `prod/jira/api-token`
+3. Click "Fetch Changes"
+4. Go to "Jira" tab
+
+**Expected Result:**
+- ✅ Local: Uses `.env` token
+- ✅ Production: Uses Secrets Manager
+- ✅ Real Jira deployments/releases shown
+- ✅ Labels, components, assignees populated
+
+**Troubleshooting:**
+- If 401 error: Check Jira API token validity
+- If empty: Adjust JQL query or time window
+- If using mock data: Token not configured (expected fallback behavior)
+
+---
+
+### 🧪 Test 5: Timeline Visualization
+
+**Purpose:** Verify interactive timeline works with real data.
+
+**Steps:**
+1. After fetching changes, check the timeline above tabs
+2. Hover over colored dots
+3. Click a dot
+
+**Expected Result:**
+- ✅ Dots positioned correctly by timestamp
+- ✅ Tooltips show change details
+- ✅ Clicking jumps to relevant tab
+- ✅ Color-coded: Purple (Jira), Red (Database), Yellow (Config)
+
+---
+
+### 🧪 Test 6: Root Cause Suggestions
+
+**Purpose:** Verify correlation detection and AI suggestions.
+
+**Steps:**
+1. After fetching changes with multiple sources
+2. Check "AI Root Cause Suggestions" panel
+3. Review suggested causal chain
+
+**Expected Result:**
+- ✅ Shows confidence percentage
+- ✅ Lists correlated changes in chronological order
+- ✅ Explains why they're correlated (time proximity, keywords)
+
+---
+
+### 🧪 Test 7: Search & Filters
+
+**Purpose:** Verify filtering works correctly.
+
+**Steps:**
+1. Type "migration" in search box
+2. Click "High Severity Only"
+3. Click "Show Correlated Only"
+4. Click "Export JSON"
+
+**Expected Result:**
+- ✅ Search filters visible changes (future: highlights matches)
+- ✅ Filters toggle active/inactive
+- ✅ Export downloads JSON file with all data
+- ✅ Reset button clears all filters
+
 ---
 
 ## Usage
 
 ### Basic Flow
 
-1. **Select Incident Time**: Use the datetime picker or quick presets
-2. **Choose Lookback Window**: 1-24 hours before the incident
-3. **Fetch Changes**: Click "Fetch Changes" to aggregate all data
-4. **Review Summary**: See counts and detected correlations
-5. **Explore Tabs**: Drill down into Jira, Database, or Config changes
-6. **Click Changes**: Select any change to see correlations in the side panel
+1. **Connect to Teleport**: Select cluster → Login via browser → Select DB instance
+2. **Set Incident Time**: Use datetime picker or quick presets
+3. **Choose Lookback Window**: 1-24 hours before the incident
+4. **Fetch Changes**: Click "Fetch Changes" to aggregate all data
+5. **Review Summary**: See counts and detected correlations
+6. **Check Timeline**: Visual overview of when changes occurred
+7. **Review AI Suggestions**: Check root cause panel
+8. **Explore Tabs**: Drill down into Jira, Database, or Config changes
+9. **Click Changes**: Select any change to see correlations in the side panel
 
 ### Example Workflow
 

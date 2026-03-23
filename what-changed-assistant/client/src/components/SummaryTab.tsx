@@ -1,19 +1,35 @@
 import React from 'react';
-import { Clock, Ticket, Database, Settings, Link2 } from 'lucide-react';
+import { Clock, Ticket, Database, Settings, Link2, AlertTriangle } from 'lucide-react';
 import { useAppStore } from '../store/app-store';
 
 export default function SummaryTab() {
-  const { timeWindow, jiraChanges, databaseChanges, configChanges, correlations, setActiveTab } = useAppStore();
+  const { timeWindow, jiraChanges, databaseChanges, configChanges, correlations, setActiveTab, mode } = useAppStore();
 
   if (!timeWindow) {
     return (
       <div className="text-center text-gray-400 py-12">
-        Select an incident time and fetch changes to see summary
+        {mode === 'daily' ? 'Loading daily changes...' : 'Select an incident time and fetch changes to see summary'}
       </div>
     );
   }
 
   const totalChanges = jiraChanges.length + databaseChanges.length + configChanges.length;
+
+  // Calculate risk statistics
+  const allChanges = [
+    ...jiraChanges.map(j => ({ type: 'jira', risk: j.risk })),
+    ...databaseChanges.map(d => ({ type: 'database', risk: d.risk })),
+    ...configChanges.map(c => ({ type: 'config', risk: c.risk })),
+  ];
+
+  const riskCounts = {
+    critical: allChanges.filter(c => c.risk?.level === 'critical').length,
+    high: allChanges.filter(c => c.risk?.level === 'high').length,
+    medium: allChanges.filter(c => c.risk?.level === 'medium').length,
+    low: allChanges.filter(c => c.risk?.level === 'low').length,
+  };
+
+  const highRiskChanges = allChanges.filter(c => c.risk && (c.risk.level === 'critical' || c.risk.level === 'high'));
 
   return (
     <div className="space-y-6">
@@ -41,6 +57,43 @@ export default function SummaryTab() {
           </div>
         </div>
       </div>
+
+      {/* Risk Summary */}
+      {(riskCounts.critical > 0 || riskCounts.high > 0) && (
+        <div className="bg-red-950 border border-red-700 rounded-lg p-6">
+          <h3 className="text-lg font-bold text-red-400 mb-4 flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5" />
+            High-Risk Changes Detected ({highRiskChanges.length})
+          </h3>
+          <div className="grid grid-cols-4 gap-4">
+            {riskCounts.critical > 0 && (
+              <div className="bg-red-900 border border-red-600 rounded p-3 text-center">
+                <div className="text-3xl font-bold text-red-200">{riskCounts.critical}</div>
+                <div className="text-xs text-red-300 font-semibold">CRITICAL</div>
+              </div>
+            )}
+            {riskCounts.high > 0 && (
+              <div className="bg-orange-900 border border-orange-600 rounded p-3 text-center">
+                <div className="text-3xl font-bold text-orange-200">{riskCounts.high}</div>
+                <div className="text-xs text-orange-300 font-semibold">HIGH RISK</div>
+              </div>
+            )}
+            {riskCounts.medium > 0 && (
+              <div className="bg-yellow-900 border border-yellow-600 rounded p-3 text-center">
+                <div className="text-3xl font-bold text-yellow-200">{riskCounts.medium}</div>
+                <div className="text-xs text-yellow-300 font-semibold">MEDIUM</div>
+              </div>
+            )}
+            <div className="bg-gray-800 border border-gray-600 rounded p-3 text-center">
+              <div className="text-3xl font-bold text-gray-300">{riskCounts.low}</div>
+              <div className="text-xs text-gray-400 font-semibold">LOW RISK</div>
+            </div>
+          </div>
+          <div className="mt-4 text-sm text-red-200">
+            <strong>Action Required:</strong> Review high-risk changes immediately to prevent potential incidents.
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <button

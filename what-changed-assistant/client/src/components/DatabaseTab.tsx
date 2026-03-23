@@ -4,6 +4,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useAppStore } from '../store/app-store';
 import { DatabaseChange } from '../api/types';
+import RiskBadge from './RiskBadge';
 
 export default function DatabaseTab() {
   const { databaseChanges, selectedChangeId, setSelectedChangeId } = useAppStore();
@@ -58,10 +59,17 @@ export default function DatabaseTab() {
                 <span className={`px-2 py-1 text-xs rounded ${getSeverityBadge(change.severity)}`}>
                   {change.severity}
                 </span>
+                <RiskBadge risk={change.risk} size="sm" />
               </div>
               <h3 className="text-lg font-semibold text-gray-100">{change.description}</h3>
             </div>
           </div>
+
+          {change.risk && change.risk.level !== 'low' && (
+            <div className="mb-3">
+              <RiskBadge risk={change.risk} showDetails />
+            </div>
+          )}
 
           <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
             <Clock className="w-4 h-4" />
