@@ -2,6 +2,11 @@
 
 Personal / shared DBA tooling.
 
+## Git branch (team)
+
+- **Official branch: `master`** — use this for PRs, clones, and the GitHub default branch.
+- **`main`** may exist for older history; do not treat it as source of truth unless you are explicitly syncing legacy work.
+
 ## Query Hub (full copy)
 
 Standalone app folder: **[`query-hub/`](./query-hub/)**
