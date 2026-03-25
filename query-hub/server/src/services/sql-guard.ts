@@ -5,6 +5,8 @@
 
 export interface SqlGuardResult {
   allowed: boolean;
+  /** Comment-stripped, trimmed SQL ready to execute — only set when allowed. */
+  cleanSql?: string;
   blockedPattern?: string;
   reason?: string;
 }
@@ -113,7 +115,7 @@ export function guardSql(sql: string): SqlGuardResult {
     };
   }
 
-  return { allowed: true };
+  return { allowed: true, cleanSql: trimmed };
 }
 
 /** Validate a MySQL database/schema name — throws on invalid input. */

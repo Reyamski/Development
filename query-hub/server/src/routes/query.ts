@@ -26,9 +26,8 @@ router.post('/execute', async (req: Request, res: Response) => {
       return;
     }
     const safeDatabase = validateDatabaseName(database ?? '');
-    // NOSONAR: sql is intentional user-authored SQL in a query editor; guarded by guardSql() above which blocks DDL, privilege, admin, multi-statement, and unbounded DELETE/UPDATE.
     const result = await runQuery({
-      sql,
+      sql: guard.cleanSql!,
       database: safeDatabase,
       rowLimit: Math.min(Number(rowLimit) || DEFAULT_ROW_LIMIT, 50_000),
       timeoutMs: Math.min(Number(timeoutMs) || DEFAULT_TIMEOUT_MS, 600_000),
@@ -96,9 +95,8 @@ router.post('/export', async (req: Request, res: Response) => {
       return;
     }
     const safeDatabase = validateDatabaseName(database ?? '');
-    // NOSONAR: sql is intentional user-authored SQL in a query editor; guarded by guardSql() above which blocks DDL, privilege, admin, multi-statement, and unbounded DELETE/UPDATE.
     const result = await runQuery({
-      sql,
+      sql: guard.cleanSql!,
       database: safeDatabase,
       rowLimit: Math.min(Number(rowLimit) || EXPORT_ROW_LIMIT, EXPORT_ROW_LIMIT),
       timeoutMs: 120_000,
