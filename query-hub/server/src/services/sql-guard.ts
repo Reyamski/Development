@@ -116,6 +116,18 @@ export function guardSql(sql: string): SqlGuardResult {
   return { allowed: true };
 }
 
+/** Validate a MySQL database/schema name — throws on invalid input. */
+export function validateDatabaseName(database: string): string {
+  if (!database || typeof database !== 'string') {
+    throw Object.assign(new Error('database name is required'), { status: 400 });
+  }
+  const trimmed = database.trim();
+  if (!/^[A-Za-z0-9_$-]+$/.test(trimmed)) {
+    throw Object.assign(new Error('Invalid database name'), { status: 400 });
+  }
+  return trimmed;
+}
+
 export function isSelectLike(sql: string): boolean {
   const t = stripSqlComments(sql).trim().toUpperCase();
   return (

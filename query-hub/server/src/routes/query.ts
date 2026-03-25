@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { guardSql } from '../services/sql-guard.js';
+import { guardSql, validateDatabaseName } from '../services/sql-guard.js';
 import { runQuery, runExplain, rowsToCsv } from '../services/query-runner.js';
 
 const router = Router();
@@ -20,9 +20,16 @@ router.post('/execute', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'sql is required' });
       return;
     }
+    const guard = guardSql(sql);
+    if (!guard.allowed) {
+      res.status(403).json({ error: guard.reason ?? 'Query blocked', blocked: true, blockedPattern: guard.blockedPattern });
+      return;
+    }
+    const safeDatabase = validateDatabaseName(database ?? '');
+    // NOSONAR: sql is intentional user-authored SQL in a query editor; guarded by guardSql() above which blocks DDL, privilege, admin, multi-statement, and unbounded DELETE/UPDATE.
     const result = await runQuery({
       sql,
-      database: database ?? '',
+      database: safeDatabase,
       rowLimit: Math.min(Number(rowLimit) || DEFAULT_ROW_LIMIT, 50_000),
       timeoutMs: Math.min(Number(timeoutMs) || DEFAULT_TIMEOUT_MS, 600_000),
     });
@@ -44,7 +51,8 @@ router.post('/explain', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'sql is required' });
       return;
     }
-    const result = await runExplain({ sql, database: database ?? '' });
+    const safeDatabase = validateDatabaseName(database ?? '');
+    const result = await runExplain({ sql, database: safeDatabase });
     if ('error' in result) {
       const status = result.blocked ? 403 : 400;
       res.status(status).json(result);
@@ -82,9 +90,16 @@ router.post('/export', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'sql is required' });
       return;
     }
+    const guard = guardSql(sql);
+    if (!guard.allowed) {
+      res.status(403).json({ error: guard.reason ?? 'Query blocked', blocked: true, blockedPattern: guard.blockedPattern });
+      return;
+    }
+    const safeDatabase = validateDatabaseName(database ?? '');
+    // NOSONAR: sql is intentional user-authored SQL in a query editor; guarded by guardSql() above which blocks DDL, privilege, admin, multi-statement, and unbounded DELETE/UPDATE.
     const result = await runQuery({
       sql,
-      database: database ?? '',
+      database: safeDatabase,
       rowLimit: Math.min(Number(rowLimit) || EXPORT_ROW_LIMIT, EXPORT_ROW_LIMIT),
       timeoutMs: 120_000,
     });
