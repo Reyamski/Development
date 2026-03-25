@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getConnection } from '../services/connection-manager.js';
+import { getConnection, getActiveSession } from '../services/connection-manager.js';
 import { buildSchemaSummary } from '../services/schema-summary.js';
 import { guardSql, stripSqlComments } from '../services/sql-guard.js';
 import { runAiCompletion, aiErrorStatus } from '../services/ai-providers.js';
@@ -98,7 +98,7 @@ router.post('/ask', async (req: Request, res: Response) => {
     }
 
     let schemaBlock = '';
-    const safeDb = database?.trim() && /^[A-Za-z0-9_$-]+$/.test(database.trim()) ? database.trim() : '';
+    const safeDb = getActiveSession()?.database ?? '';
     if (includeSchema && safeDb) {
       try {
         const conn = getConnection();
@@ -135,7 +135,7 @@ router.post('/explain', async (req: Request, res: Response) => {
       return;
     }
     let schemaBlock = '';
-    const safeDb = database?.trim() && /^[A-Za-z0-9_$-]+$/.test(database.trim()) ? database.trim() : '';
+    const safeDb = getActiveSession()?.database ?? '';
     if (safeDb) {
       try {
         const conn = getConnection();
@@ -162,7 +162,7 @@ router.post('/optimize', async (req: Request, res: Response) => {
       return;
     }
     let schemaBlock = '';
-    const safeDb = database?.trim() && /^[A-Za-z0-9_$-]+$/.test(database.trim()) ? database.trim() : '';
+    const safeDb = getActiveSession()?.database ?? '';
     if (safeDb) {
       try {
         const conn = getConnection();
@@ -191,7 +191,7 @@ router.post('/generate', async (req: Request, res: Response) => {
       return;
     }
     let schemaBlock = '';
-    const safeDb = database?.trim() && /^[A-Za-z0-9_$-]+$/.test(database.trim()) ? database.trim() : '';
+    const safeDb = getActiveSession()?.database ?? '';
     if (safeDb) {
       try {
         const conn = getConnection();
@@ -201,8 +201,6 @@ router.post('/generate', async (req: Request, res: Response) => {
       }
     }
     const system = `Generate MySQL SELECT queries from natural language. Put final SQL only in a \`\`\`sql code block. ${SAFETY_RULES}\n\n${schemaBlock ? `Schema:\n${schemaBlock}` : 'No schema loaded — infer carefully.'}`;
-    // NOSONAR: prompt is sent to Bedrock/Kiro AI — runAiCompletion does not execute SQL.
-    // database is validated via safeDb regex; buildSchemaSummary uses parameterized queries only.
     const { text, model } = await runAiCompletion(req, system, prompt.trim(), 4096);
     const sqlMatch = text.match(/```sql\n([\s\S]*?)```/i);
     const sql = sqlMatch ? sqlMatch[1].trim() : undefined;
@@ -230,7 +228,7 @@ router.post('/analyze', async (req: Request, res: Response) => {
     }
 
     let schemaBlock = '';
-    const safeDb = body.database?.trim() && /^[A-Za-z0-9_$-]+$/.test(body.database.trim()) ? body.database.trim() : '';
+    const safeDb = getActiveSession()?.database ?? '';
     if (safeDb) {
       try {
         const conn = getConnection();
