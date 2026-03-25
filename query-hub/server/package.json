@@ -8,8 +8,10 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.750.0",
+    "@aws-sdk/credential-providers": "^3.750.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.3.1",
     "express": "^4.18.2",
     "mysql2": "^3.11.0"
   },

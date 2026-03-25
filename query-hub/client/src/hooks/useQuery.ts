@@ -79,16 +79,6 @@ export function useQueryActions() {
     try {
       const { plan, executionTimeMs } = await queryExplain({ sql, database: db });
       setExplainPlan(plan, executionTimeMs);
-      const qs = useQueryStore.getState();
-      if (qs.autoAiAfterExplain && plan.length > 0) {
-        qs.setAiPanelRequest({
-          id: Date.now(),
-          action: 'analyze_explain_plan',
-          sql,
-          database: db,
-          explainPlan: plan,
-        });
-      }
     } catch (e) {
       useQueryStore.getState().setExplainPlan(null, null);
       setError(e instanceof Error ? e.message : 'EXPLAIN failed');

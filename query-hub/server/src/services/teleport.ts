@@ -63,12 +63,13 @@ export async function cleanupAll(): Promise<void> {
  * Supports Windows (WinGet) and macOS (Teleport Connect app bundle).
  */
 export async function findTsh(override?: string): Promise<string> {
-  if (override) {
+  const explicit = override?.trim() || process.env.QUERY_HUB_TSH_PATH?.trim() || '';
+  if (explicit) {
     try {
-      await fs.access(override);
-      return override;
+      await fs.access(explicit);
+      return explicit;
     } catch {
-      throw new Error(`Configured tsh path not found: ${override}`);
+      throw new Error(`Configured tsh path not found: ${explicit}`);
     }
   }
 
@@ -95,6 +96,34 @@ export async function findTsh(override?: string): Promise<string> {
       }
     } catch {
       // not found
+    }
+
+    // Teleport Connect installer (common) — often not on PATH when Node is started from IDE
+    const localPrograms = path.join(
+      process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
+      'Programs',
+      'Teleport Connect',
+      'tsh.exe',
+    );
+    const pfCandidates = [
+      process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Teleport Connect', 'tsh.exe'),
+      process.env['ProgramFiles(x86)'] &&
+        path.join(process.env['ProgramFiles(x86)'], 'Teleport Connect', 'tsh.exe'),
+      localPrograms,
+      'C:\\Program Files\\Teleport Connect\\tsh.exe',
+      'C:\\Program Files (x86)\\Teleport Connect\\tsh.exe',
+    ].filter((p): p is string => Boolean(p));
+
+    const tried = new Set<string>();
+    for (const candidate of pfCandidates) {
+      if (tried.has(candidate)) continue;
+      tried.add(candidate);
+      try {
+        await fs.access(candidate);
+        return candidate;
+      } catch {
+        /* try next */
+      }
     }
   } else {
     // Check Teleport Connect app bundle (macOS)
@@ -173,11 +202,13 @@ export async function getLoginStatus(tsh: string, cluster?: string): Promise<Tel
 }
 
 /**
- * Start SSO login for a cluster. Opens browser. Returns the child process.
+ * Start SSO login for a cluster. Opens browser on the API host. Returns the child process.
+ * Use stdio `ignore` (not pipes): unread pipes can fill and block `tsh login` before SSO finishes.
  */
 export function loginToCluster(tsh: string, cluster: string): ChildProcess {
   return spawn(tsh, ['login', cluster], {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: 'ignore',
+    windowsHide: false,
   });
 }
 

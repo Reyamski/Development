@@ -2,9 +2,11 @@ import { useAppStore } from '../store/app-store';
 import { useTeleport } from '../hooks/useTeleport';
 
 const selectClasses =
-  'w-full bg-white border border-par-light-purple rounded px-2 py-1.5 text-sm text-par-text focus:border-par-purple focus:ring-1 focus:ring-par-purple focus:outline-none';
-const labelClasses =
-  'block text-xs font-bold text-par-navy uppercase tracking-[0.14em] mb-1.5 border-b border-par-purple/15 pb-1';
+  'w-full bg-white border border-par-light-purple/90 rounded-xl px-3 py-2 text-sm text-par-text shadow-qh-inset focus:outline-none focus:ring-2 focus:ring-par-purple/30 focus:border-par-purple transition-shadow disabled:opacity-45 disabled:cursor-not-allowed';
+const labelText = 'text-[10px] font-bold text-par-navy/70 uppercase tracking-[0.16em]';
+const labelClasses = `block ${labelText} mb-2`;
+
+const alertBase = 'rounded-2xl px-3.5 py-3 text-xs leading-relaxed';
 
 export function TeleportControls() {
   const store = useAppStore();
@@ -14,23 +16,31 @@ export function TeleportControls() {
   const isConnected = !!store.connectionResult;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {!store.tshAvailable && (
-        <div className="rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800 font-medium">
-          <strong className="block mb-1">tsh not found on the API server</strong>
-          Install Teleport CLI or Teleport Connect on the <em>same machine</em> that runs{' '}
-          <code className="bg-red-100 px-1 rounded">npm run dev</code> for Query Hub (not only on your laptop browser).
+        <div className={`${alertBase} border border-red-200/90 bg-red-50/95 text-red-900 shadow-qh-sm`}>
+          <strong className="block mb-1.5 text-red-950 font-bold">tsh not found on the API server</strong>
+          <p className="text-red-800/95">
+            Install Teleport CLI or Teleport Connect on the <em>same machine</em> that runs Query Hub API (not only in
+            this browser).
+          </p>
+          <p className="text-red-800/90 mt-2">
+            Optional: set <code className="rounded-md bg-red-100/90 px-1.5 py-0.5 text-[11px]">QUERY_HUB_TSH_PATH</code>{' '}
+            in the API <code className="rounded-md bg-red-100/90 px-1.5 py-0.5 text-[11px]">.env</code> to the full path
+            of <code className="rounded-md bg-red-100/90 px-1.5 py-0.5 text-[11px]">tsh</code> if it is not on{' '}
+            <code className="rounded-md bg-red-100/90 px-1.5 py-0.5 text-[11px]">PATH</code>.
+          </p>
         </div>
       )}
 
       {store.clustersLoadError && (
-        <div className="rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800 space-y-2">
-          <p className="font-semibold">Could not load cluster list</p>
-          <p className="text-red-700">{store.clustersLoadError}</p>
+        <div className={`${alertBase} border border-red-200/90 bg-red-50/95 text-red-900 space-y-2 shadow-qh-sm`}>
+          <p className="font-bold text-red-950">Could not load cluster list</p>
+          <p className="text-red-800">{store.clustersLoadError}</p>
           <button
             type="button"
             onClick={() => void refreshClusters()}
-            className="px-3 py-1.5 rounded-lg bg-red-700 text-white text-[11px] font-bold hover:bg-red-800"
+            className="mt-1 px-3 py-2 rounded-xl bg-red-700 text-white text-[11px] font-bold hover:bg-red-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2"
           >
             Retry
           </button>
@@ -38,38 +48,30 @@ export function TeleportControls() {
       )}
 
       {store.tshAvailable && !store.clustersLoadError && store.clusters.length === 0 && (
-        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-950 space-y-2">
+        <div className={`${alertBase} border border-amber-200/90 bg-amber-50/95 text-amber-950 shadow-qh-sm space-y-2`}>
           <p className="font-bold">No Teleport clusters found</p>
-          <p className="text-amber-900/90 leading-relaxed">
-            Ang listahan galing sa <code className="bg-amber-100 px-1 rounded">~/.tsh/*.yaml</code> sa{' '}
-            <strong>server</strong> na tumatakbo ang Query Hub API. Walang profile = walang dropdown options.
+          <p className="text-amber-900/90">
+            Profiles come from <code className="rounded-md bg-amber-100/90 px-1.5 py-0.5">~/.tsh</code> on the API host.
           </p>
-          <ol className="list-decimal pl-4 space-y-1 text-amber-900/85">
+          <ol className="list-decimal pl-4 space-y-1.5 text-amber-900/85">
             <li>
-              Sa machine na may API: mag-terminal at{' '}
-              <code className="bg-amber-100 px-1 rounded">tsh login &lt;your-proxy&gt;</code> (hal.{' '}
-              <code className="bg-amber-100 px-1 rounded">par-prod.teleport.sh</code>).
+              On that machine: <code className="rounded bg-amber-100/80 px-1">tsh login &lt;proxy&gt;</code>
             </li>
-            <li>
-              Siguraduhing tumatakbo ang Query Hub API:{' '}
-              <code className="bg-amber-100 px-1 rounded">npm run dev</code> sa{' '}
-              <code className="bg-amber-100 px-1 rounded">query-hub</code> server (port <strong>3003</strong>).
-            </li>
-            <li>I-click ang <strong>Refresh clusters</strong> sa baba.</li>
+            <li>Ensure the Query Hub API is running, then tap Refresh clusters below.</li>
           </ol>
         </div>
       )}
 
       <div>
-        <div className="flex items-end justify-between gap-2 mb-1.5">
-          <span className="text-xs font-bold text-par-navy uppercase tracking-[0.14em]">Cluster</span>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className={labelText}>Cluster</span>
           <button
             type="button"
             onClick={() => void refreshClusters()}
             disabled={!store.tshAvailable}
-            className="text-[10px] font-bold text-par-purple hover:underline disabled:opacity-40"
+            className="text-[10px] font-bold text-par-purple hover:text-[#524fc4] disabled:opacity-40 transition-colors focus:outline-none focus-visible:underline"
           >
-            Refresh clusters
+            Refresh
           </button>
         </div>
         <select
@@ -78,7 +80,7 @@ export function TeleportControls() {
           onChange={(e) => selectCluster(e.target.value)}
           disabled={!store.tshAvailable}
         >
-          <option value="">Select a cluster...</option>
+          <option value="">Select a cluster…</option>
           {store.clusters.map((c) => (
             <option key={c} value={c}>
               {c}
@@ -88,20 +90,26 @@ export function TeleportControls() {
       </div>
 
       {store.selectedCluster && !isLoggedIn && (
-        <button
-          type="button"
-          onClick={() => void login()}
-          className="w-full py-2.5 text-sm font-medium rounded bg-par-purple hover:bg-[#5753b8] text-white transition-colors"
-        >
-          Login via SSO
-        </button>
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => void login()}
+            className="w-full py-2.5 text-sm font-bold rounded-xl bg-par-purple text-white shadow-qh-sm hover:bg-[#5a56c4] active:scale-[0.99] transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-par-purple focus-visible:ring-offset-2"
+          >
+            Login via SSO
+          </button>
+          <p className="text-[10px] text-par-text/45 leading-relaxed">
+            SSO may open on the <strong>API host</strong>, not this browser, if the server is remote. Check the API
+            terminal after clicking.
+          </p>
+        </div>
       )}
 
       {isLoggedIn && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded bg-white border border-par-light-purple/40">
-          <span className="w-2 h-2 rounded-full bg-green-500" />
-          <span className="text-xs text-par-text/80">
-            Logged in as <span className="text-par-text">{store.loginStatus!.username}</span>
+        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white border border-par-light-purple/50 shadow-qh-sm">
+          <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500 ring-2 ring-emerald-200/80" />
+          <span className="text-xs text-par-text/85">
+            Signed in as <span className="font-semibold text-par-navy">{store.loginStatus!.username}</span>
           </span>
         </div>
       )}
@@ -114,7 +122,7 @@ export function TeleportControls() {
             value={store.selectedInstance}
             onChange={(e) => void selectInstance(e.target.value)}
           >
-            <option value="">Select an instance...</option>
+            <option value="">Select an instance…</option>
             {store.instances.map((inst) => (
               <option key={inst.name} value={inst.name}>
                 {inst.name} ({inst.region} / {inst.instanceId})
@@ -125,37 +133,42 @@ export function TeleportControls() {
       )}
 
       {store.connecting && (
-        <div className="flex items-center gap-2 text-xs text-par-purple">
-          <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        <div className="flex items-center gap-2.5 text-xs font-semibold text-par-purple">
+          <svg className="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden>
+            <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+            <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          Connecting...
+          Connecting…
         </div>
       )}
 
       {isConnected && (
-        <div className="rounded bg-green-50 border border-green-200 px-3 py-3 space-y-2">
+        <div className="rounded-2xl border border-emerald-200/90 bg-gradient-to-b from-emerald-50/90 to-white px-3.5 py-3 shadow-qh-sm space-y-2">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500" />
-            <span className="text-xs font-medium text-green-700">Connected</span>
+            <span className="h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-emerald-200" />
+            <span className="text-xs font-bold text-emerald-900">Connected</span>
           </div>
-          <div className="text-xs text-green-700 space-y-1">
+          <dl className="text-[11px] text-emerald-900/90 space-y-1 pl-4 border-l-2 border-emerald-200/80">
             <div>
-              Cluster: <span className="text-green-800">{store.selectedCluster}</span>
+              <dt className="inline text-emerald-800/70 font-semibold">Cluster</dt>{' '}
+              <dd className="inline font-mono text-emerald-950">{store.selectedCluster}</dd>
             </div>
             <div>
-              Instance: <span className="text-green-800">{store.selectedInstance}</span>
+              <dt className="inline text-emerald-800/70 font-semibold">Instance</dt>{' '}
+              <dd className="inline font-mono text-emerald-950">{store.selectedInstance}</dd>
             </div>
             <div>
-              MySQL: <span className="text-green-800">{store.connectionResult!.version}</span>
+              <dt className="inline text-emerald-800/70 font-semibold">MySQL</dt>{' '}
+              <dd className="inline font-mono text-emerald-950">{store.connectionResult!.version}</dd>
             </div>
-          </div>
+          </dl>
         </div>
       )}
 
       {store.error && !isConnected && (
-        <div className="rounded bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">{store.error}</div>
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs text-red-800 font-medium shadow-qh-sm">
+          {store.error}
+        </div>
       )}
     </div>
   );

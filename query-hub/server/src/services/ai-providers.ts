@@ -1,12 +1,11 @@
 import type { Request } from 'express';
-import Anthropic from '@anthropic-ai/sdk';
-import { verifySessionToken, isEmailAllowed } from './email-signin.js';
-
-const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
+import { fromIni } from '@aws-sdk/credential-providers';
+import { getKiroAwsProfile } from './kiro-aws-sso.js';
+import { runKiroCliChat, useKiroCliBackend } from './kiro-cli-runner.js';
 
 export type ResolvedAi =
-  | { ok: true; provider: 'anthropic'; key: string }
-  | { ok: true; provider: 'openai'; key: string; model: string }
+  | { ok: true; provider: 'bedrock'; profile: string; region: string; modelId: string }
   | { ok: false; error: string };
 
 function header(req: Request, name: string): string {
@@ -15,141 +14,102 @@ function header(req: Request, name: string): string {
   return typeof v === 'string' ? v : '';
 }
 
+/** Server-only Bedrock when QUERY_HUB_BEDROCK_PROFILE (+ model id env) set — no account header. */
+function bedrockProfileFromEnv(): { profile: string; region: string } | null {
+  const profile =
+    process.env.QUERY_HUB_BEDROCK_PROFILE?.trim() || process.env.AWS_PROFILE?.trim() || '';
+  const region = process.env.QUERY_HUB_BEDROCK_REGION?.trim() || 'us-east-1';
+  if (!profile) return null;
+  return { profile, region };
+}
+
 /**
- * X-Query-Hub-AI-Provider: server | email_team | anthropic | openai
- * Authorization: Bearer <session> (email_team — work email sign-in)
- * X-Query-Hub-Anthropic-Key / X-Query-Hub-OpenAI-Key: personal API keys
+ * Kiro / AI completion:
+ * - **`QUERY_HUB_USE_KIRO_CLI=true`** → always **Kiro CLI** (`kiro-cli chat --no-interactive`).
+ * - Else if **`QUERY_HUB_BEDROCK_MODEL_ID`** is unset → try **Kiro CLI once** (workaround when you have Kiro access but no Bedrock IAM). Disable with **`QUERY_HUB_DISABLE_KIRO_CLI_FALLBACK=true`**.
+ * - Else **Amazon Bedrock** `Converse`:
+ *   - Optional `QUERY_HUB_BEDROCK_ACCOUNT_ID` (split account vs Teleport RDS).
+ *   - Else headers / `QUERY_HUB_BEDROCK_PROFILE` + model ID from env.
  */
-export function resolveAiCredentials(req: Request): ResolvedAi {
-  const mode = (header(req, 'x-query-hub-ai-provider') || 'server').toLowerCase();
-
-  if (mode === 'email_team') {
-    const auth = header(req, 'authorization');
-    const m = /^Bearer\s+(.+)$/i.exec(auth.trim());
-    const token = m?.[1]?.trim() ?? '';
-    if (!token) {
-      return {
-        ok: false,
-        error:
-          'Team (email): sign in under AI → Connection, or use a personal API key / server default.',
-      };
-    }
-    const email = verifySessionToken(token);
-    if (!email || !isEmailAllowed(email)) {
-      return {
-        ok: false,
-        error: 'Email session expired or no longer allowed. Sign in again with a new code.',
-      };
-    }
-    const ak = process.env.ANTHROPIC_API_KEY?.trim();
-    if (ak) return { ok: true, provider: 'anthropic', key: ak };
-    const ok = process.env.OPENAI_API_KEY?.trim();
-    if (ok) {
-      const model = process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini';
-      return { ok: true, provider: 'openai', key: ok, model };
-    }
+export async function resolveAiCredentials(req: Request): Promise<ResolvedAi> {
+  const modelId = process.env.QUERY_HUB_BEDROCK_MODEL_ID?.trim() || '';
+  if (!modelId) {
     return {
       ok: false,
       error:
-        'Team AI keys are not configured on the server. Admin must set ANTHROPIC_API_KEY or OPENAI_API_KEY.',
+        'Kiro: QUERY_HUB_BEDROCK_MODEL_ID must be set on the Query Hub API server (org-approved Bedrock model).',
     };
   }
 
-  if (mode === 'server') {
-    const ak = process.env.ANTHROPIC_API_KEY?.trim();
-    if (ak) return { ok: true, provider: 'anthropic', key: ak };
-    const ok = process.env.OPENAI_API_KEY?.trim();
-    if (ok) {
-      const model = process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini';
-      return { ok: true, provider: 'openai', key: ok, model };
-    }
-    return {
-      ok: false,
-      error:
-        'AI disabled: server has no ANTHROPIC_API_KEY or OPENAI_API_KEY. Use AI settings with your own key, or ask your admin to set env vars.',
-    };
-  }
+  const headerAccount = header(req, 'x-query-hub-aws-account-id').trim();
+  const forcedAccount = process.env.QUERY_HUB_BEDROCK_ACCOUNT_ID?.trim() || '';
+  const accountId = forcedAccount || headerAccount;
+  const region =
+    header(req, 'x-query-hub-bedrock-region').trim() ||
+    process.env.QUERY_HUB_BEDROCK_REGION?.trim() ||
+    'us-east-1';
 
-  if (mode === 'openai') {
-    const k = header(req, 'x-query-hub-openai-key').trim() || process.env.OPENAI_API_KEY?.trim();
-    if (!k) {
-      return {
-        ok: false,
-        error:
-          'OpenAI: add your API key in Query Hub → AI settings (or set OPENAI_API_KEY on the server). Note: ChatGPT Plus is not the same as the API — use platform.openai.com API keys.',
-      };
-    }
-    const model =
-      header(req, 'x-query-hub-openai-model').trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini';
-    return { ok: true, provider: 'openai', key: k, model };
-  }
-
-  const k = header(req, 'x-query-hub-anthropic-key').trim() || process.env.ANTHROPIC_API_KEY?.trim();
-  if (!k) {
-    return {
-      ok: false,
-      error:
-        'Claude: add your API key in Query Hub → AI settings (or set ANTHROPIC_API_KEY on the server).',
-    };
-  }
-  return { ok: true, provider: 'anthropic', key: k };
-}
-
-export async function runAnthropic(
-  key: string,
-  system: string,
-  user: string,
-  maxTokens: number,
-): Promise<{ text: string; model: string }> {
-  const client = new Anthropic({ apiKey: key });
-  const resp = await client.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: maxTokens,
-    system,
-    messages: [{ role: 'user', content: user }],
-  });
-  const text = resp.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
-  return { text, model: CLAUDE_MODEL };
-}
-
-export async function runOpenai(
-  key: string,
-  model: string,
-  system: string,
-  user: string,
-  maxTokens: number,
-): Promise<{ text: string; model: string }> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-    }),
-  });
-  if (!res.ok) {
-    let msg = res.statusText;
+  if (accountId) {
     try {
-      const j = (await res.json()) as { error?: { message?: string } };
-      if (j.error?.message) msg = j.error.message;
-    } catch {
-      /* ignore */
+      const profile = await getKiroAwsProfile(accountId, region);
+      return { ok: true, provider: 'bedrock', profile, region, modelId };
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : 'Failed to resolve AWS SSO profile for Kiro',
+      };
     }
-    throw new Error(msg || `OpenAI HTTP ${res.status}`);
   }
-  const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-    model?: string;
+
+  const envProfile = bedrockProfileFromEnv();
+  if (envProfile) {
+    return {
+      ok: true,
+      provider: 'bedrock',
+      profile: envProfile.profile,
+      region: envProfile.region,
+      modelId,
+    };
+  }
+
+  return {
+    ok: false,
+    error:
+      'Select an AWS account in Kiro → Connection and sign in with AWS SSO, or configure QUERY_HUB_BEDROCK_PROFILE + QUERY_HUB_BEDROCK_MODEL_ID on the API server.',
   };
-  const text = data.choices?.[0]?.message?.content ?? '';
-  return { text, model: data.model ?? model };
+}
+
+export async function runBedrock(
+  profile: string,
+  region: string,
+  modelId: string,
+  system: string,
+  user: string,
+  maxTokens: number,
+): Promise<{ text: string; model: string }> {
+  const client = new BedrockRuntimeClient({
+    region,
+    credentials: fromIni({ profile }),
+  });
+  const max = Math.min(Math.max(maxTokens, 1), 8192);
+  const command = new ConverseCommand({
+    modelId,
+    system: [{ text: system }],
+    messages: [{ role: 'user', content: [{ text: user }] }],
+    inferenceConfig: {
+      maxTokens: max,
+      temperature: 0.2,
+    },
+  });
+  const out = await client.send(command);
+  const blocks = out.output?.message?.content;
+  let text = '';
+  if (blocks) {
+    for (const b of blocks) {
+      if (b && 'text' in b && typeof b.text === 'string') text += b.text;
+    }
+  }
+  return { text, model: modelId };
 }
 
 export async function runAiCompletion(
@@ -158,16 +118,37 @@ export async function runAiCompletion(
   user: string,
   maxTokens: number,
 ): Promise<{ text: string; model: string }> {
-  const r = resolveAiCredentials(req);
+  const full = `${system}\n\n---\n\n${user}`.trim();
+
+  if (useKiroCliBackend()) {
+    return runKiroCliChat(full);
+  }
+
+  const modelIdEnv = process.env.QUERY_HUB_BEDROCK_MODEL_ID?.trim() || '';
+  const tryCliIfNoBedrock =
+    !modelIdEnv && process.env.QUERY_HUB_DISABLE_KIRO_CLI_FALLBACK?.trim().toLowerCase() !== 'true';
+
+  if (tryCliIfNoBedrock) {
+    try {
+      return await runKiroCliChat(full);
+    } catch (cliErr) {
+      const cliHint = cliErr instanceof Error ? cliErr.message : String(cliErr);
+      const e = new Error(
+        `No QUERY_HUB_BEDROCK_MODEL_ID on the server, and automatic Kiro CLI fallback failed:\n${cliHint}\n\n` +
+          `Fix one of: (1) Set QUERY_HUB_BEDROCK_MODEL_ID for Bedrock. (2) On the API host: install Kiro CLI, run kiro-cli login, ensure kiro-cli is on PATH (or QUERY_HUB_KIRO_CLI_PATH). (3) Set QUERY_HUB_USE_KIRO_CLI=true to use only Kiro CLI.`,
+      ) as Error & { status?: number };
+      e.status = 503;
+      throw e;
+    }
+  }
+
+  const r = await resolveAiCredentials(req);
   if (!r.ok) {
     const e = new Error(r.error) as Error & { status?: number };
     e.status = 503;
     throw e;
   }
-  if (r.provider === 'anthropic') {
-    return runAnthropic(r.key, system, user, maxTokens);
-  }
-  return runOpenai(r.key, r.model, system, user, maxTokens);
+  return runBedrock(r.profile, r.region, r.modelId, system, user, maxTokens);
 }
 
 export function aiErrorStatus(e: unknown): number {

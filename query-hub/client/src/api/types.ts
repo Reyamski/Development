@@ -59,3 +59,51 @@ export interface SchemaColumn {
   extra: string;
   comment: string;
 }
+
+export interface SchemaRoutine {
+  name: string;
+  type: 'PROCEDURE' | 'FUNCTION';
+  comment: string;
+}
+
+export type SchemaDdlKind = 'table' | 'view' | 'procedure' | 'function' | 'event';
+
+export interface SchemaEvent {
+  name: string;
+  status: string;
+  eventType: string;
+  executeAt: unknown;
+  intervalValue: unknown;
+  intervalField: string;
+  starts: unknown;
+  ends: unknown;
+  comment: string;
+}
+
+/** One column participating in a FOREIGN KEY (composite keys = multiple rows). */
+export interface SchemaForeignKeyEdge {
+  constraintName: string;
+  tableName: string;
+  columnName: string;
+  referencedTableName: string;
+  referencedColumnName: string;
+}
+
+/** Tables vs views referenced by a view or routine. */
+export interface SchemaRefTablesViews {
+  tables: string[];
+  views: string[];
+}
+
+/** Event body references: base tables, views, and stored routines (CALL / backtick heuristic). */
+export interface SchemaEventRefs extends SchemaRefTablesViews {
+  routines: string[];
+}
+
+/** From GET /api/schema/object-dependencies */
+export interface SchemaObjectDependencies {
+  views: Record<string, SchemaRefTablesViews>;
+  /** Keys: `PROCEDURE:name` or `FUNCTION:name` (uppercase). */
+  routines: Record<string, SchemaRefTablesViews>;
+  events: Record<string, SchemaEventRefs>;
+}

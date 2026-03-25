@@ -23,30 +23,6 @@ export interface SavedQuery {
   createdAt: number;
 }
 
-/** Opens AI panel + runs one-shot analysis (see AiAssistant). */
-export type AiPanelRequest =
-  | {
-      id: number;
-      action: 'analyze_explain_plan';
-      sql: string;
-      database?: string;
-      explainPlan: Record<string, unknown>[];
-    }
-  | {
-      id: number;
-      action: 'analyze_results';
-      sql: string;
-      database?: string;
-      columns: string[];
-      rows: unknown[][];
-    }
-  | {
-      id: number;
-      action: 'explain_sql';
-      sql: string;
-      database?: string;
-    };
-
 interface QueryState {
   editorSql: string;
   rowLimit: number;
@@ -69,11 +45,12 @@ interface QueryState {
   executing: boolean;
   explainLoading: boolean;
   historyTab: 'history' | 'saved';
-  aiPanelRequest: AiPanelRequest | null;
-  /** When true, successful EXPLAIN queues AI analysis automatically */
-  autoAiAfterExplain: boolean;
+  /** Ephemeral: SqlEditor consumes and inserts at cursor (clipboard-free). */
+  editorInsertQueue: { id: number; text: string } | null;
 
   setEditorSql: (s: string) => void;
+  requestEditorInsert: (text: string) => void;
+  consumeEditorInsert: () => void;
   setHistoryTab: (t: 'history' | 'saved') => void;
   setRowLimit: (n: number) => void;
   setTimeoutMs: (n: number) => void;
@@ -91,8 +68,6 @@ interface QueryState {
   pushHistory: (entry: Omit<HistoryEntry, 'id'> & { id?: string }) => void;
   removeSaved: (id: string) => void;
   saveCurrent: (title: string, database: string) => void;
-  setAiPanelRequest: (r: AiPanelRequest | null) => void;
-  setAutoAiAfterExplain: (v: boolean) => void;
 }
 
 function uid() {
@@ -116,12 +91,12 @@ export const useQueryStore = create<QueryState>()(
       executing: false,
       explainLoading: false,
       historyTab: 'history',
-      aiPanelRequest: null,
-      autoAiAfterExplain: false,
+      editorInsertQueue: null,
 
       setEditorSql: (editorSql) => set({ editorSql }),
-      setAiPanelRequest: (aiPanelRequest) => set({ aiPanelRequest }),
-      setAutoAiAfterExplain: (autoAiAfterExplain) => set({ autoAiAfterExplain }),
+      requestEditorInsert: (text) =>
+        set({ editorInsertQueue: { id: Date.now(), text } }),
+      consumeEditorInsert: () => set({ editorInsertQueue: null }),
       setHistoryTab: (historyTab) => set({ historyTab }),
       setRowLimit: (rowLimit) => set({ rowLimit }),
       setTimeoutMs: (timeoutMs) => set({ timeoutMs }),
@@ -220,7 +195,6 @@ export const useQueryStore = create<QueryState>()(
         timeoutMs: s.timeoutMs,
         history: s.history,
         savedQueries: s.savedQueries,
-        autoAiAfterExplain: s.autoAiAfterExplain,
       }),
     },
   ),
