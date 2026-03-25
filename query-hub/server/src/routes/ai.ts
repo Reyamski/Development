@@ -98,10 +98,11 @@ router.post('/ask', async (req: Request, res: Response) => {
     }
 
     let schemaBlock = '';
-    if (includeSchema && database) {
+    const safeDb = database?.trim() && /^[A-Za-z0-9_$-]+$/.test(database.trim()) ? database.trim() : '';
+    if (includeSchema && safeDb) {
       try {
         const conn = getConnection();
-        schemaBlock = await buildSchemaSummary(conn, database);
+        schemaBlock = await buildSchemaSummary(conn, safeDb);
       } catch {
         schemaBlock = '(Could not load schema — connect and pick a database.)';
       }
@@ -134,10 +135,11 @@ router.post('/explain', async (req: Request, res: Response) => {
       return;
     }
     let schemaBlock = '';
-    if (database) {
+    const safeDb = database?.trim() && /^[A-Za-z0-9_$-]+$/.test(database.trim()) ? database.trim() : '';
+    if (safeDb) {
       try {
         const conn = getConnection();
-        schemaBlock = await buildSchemaSummary(conn, database, 25);
+        schemaBlock = await buildSchemaSummary(conn, safeDb, 25);
       } catch {
         /* ignore */
       }
@@ -160,10 +162,11 @@ router.post('/optimize', async (req: Request, res: Response) => {
       return;
     }
     let schemaBlock = '';
-    if (database) {
+    const safeDb = database?.trim() && /^[A-Za-z0-9_$-]+$/.test(database.trim()) ? database.trim() : '';
+    if (safeDb) {
       try {
         const conn = getConnection();
-        schemaBlock = await buildSchemaSummary(conn, database, 25);
+        schemaBlock = await buildSchemaSummary(conn, safeDb, 25);
       } catch {
         /* ignore */
       }
@@ -188,15 +191,18 @@ router.post('/generate', async (req: Request, res: Response) => {
       return;
     }
     let schemaBlock = '';
-    if (database) {
+    const safeDb = database?.trim() && /^[A-Za-z0-9_$-]+$/.test(database.trim()) ? database.trim() : '';
+    if (safeDb) {
       try {
         const conn = getConnection();
-        schemaBlock = await buildSchemaSummary(conn, database);
+        schemaBlock = await buildSchemaSummary(conn, safeDb);
       } catch {
         schemaBlock = '';
       }
     }
     const system = `Generate MySQL SELECT queries from natural language. Put final SQL only in a \`\`\`sql code block. ${SAFETY_RULES}\n\n${schemaBlock ? `Schema:\n${schemaBlock}` : 'No schema loaded — infer carefully.'}`;
+    // NOSONAR: prompt is sent to Bedrock/Kiro AI — runAiCompletion does not execute SQL.
+    // database is validated via safeDb regex; buildSchemaSummary uses parameterized queries only.
     const { text, model } = await runAiCompletion(req, system, prompt.trim(), 4096);
     const sqlMatch = text.match(/```sql\n([\s\S]*?)```/i);
     const sql = sqlMatch ? sqlMatch[1].trim() : undefined;
@@ -224,10 +230,11 @@ router.post('/analyze', async (req: Request, res: Response) => {
     }
 
     let schemaBlock = '';
-    if (body.database) {
+    const safeDb = body.database?.trim() && /^[A-Za-z0-9_$-]+$/.test(body.database.trim()) ? body.database.trim() : '';
+    if (safeDb) {
       try {
         const conn = getConnection();
-        schemaBlock = await buildSchemaSummary(conn, body.database, 20);
+        schemaBlock = await buildSchemaSummary(conn, safeDb, 20);
       } catch {
         /* ignore */
       }
