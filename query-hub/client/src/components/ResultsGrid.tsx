@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useAppStore } from '../store/app-store';
+import { useState, type ReactNode } from 'react';
 import { useQueryStore } from '../store/query-store';
 
 function isWideTextColumn(name: string): boolean {
@@ -31,13 +30,17 @@ function formatCellPreview(v: unknown): string {
   return s;
 }
 
+function SectionTitle({ children }: { children: ReactNode }) {
+  return (
+    <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-par-text/40 mb-2 flex items-center gap-2">
+      <span className="h-px flex-1 max-w-[2rem] bg-par-purple/20 rounded-full" aria-hidden />
+      {children}
+    </div>
+  );
+}
+
 export function ResultsGrid() {
   const [wrapCells, setWrapCells] = useState(false);
-  const selectedDatabase = useAppStore((s) => s.selectedDatabase);
-  const setAiPanelRequest = useQueryStore((s) => s.setAiPanelRequest);
-  const autoAiAfterExplain = useQueryStore((s) => s.autoAiAfterExplain);
-  const setAutoAiAfterExplain = useQueryStore((s) => s.setAutoAiAfterExplain);
-  const editorSql = useQueryStore((s) => s.editorSql);
 
   const lastColumns = useQueryStore((s) => s.lastColumns);
   const lastRows = useQueryStore((s) => s.lastRows);
@@ -46,92 +49,42 @@ export function ResultsGrid() {
   const explainPlan = useQueryStore((s) => s.explainPlan);
   const explainMs = useQueryStore((s) => s.explainMs);
 
-  const queueExplainPlanAi = () => {
-    if (!explainPlan?.length) return;
-    setAiPanelRequest({
-      id: Date.now(),
-      action: 'analyze_explain_plan',
-      sql: editorSql,
-      database: selectedDatabase || undefined,
-      explainPlan,
-    });
-  };
-
-  const queueResultsAi = () => {
-    if (!lastColumns.length || !lastRows.length) return;
-    const columns = lastColumns.map((c) => c.name);
-    const maxRows = 25;
-    setAiPanelRequest({
-      id: Date.now(),
-      action: 'analyze_results',
-      sql: editorSql,
-      database: selectedDatabase || undefined,
-      columns,
-      rows: lastRows.slice(0, maxRows),
-    });
-  };
-
-  const queueExplainSqlAi = () => {
-    const sql = editorSql.trim();
-    if (!sql) return;
-    setAiPanelRequest({
-      id: Date.now(),
-      action: 'explain_sql',
-      sql: editorSql,
-      database: selectedDatabase || undefined,
-    });
-  };
-
   if (lastError) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{lastError}</div>
+      <div className="flex flex-1 flex-col min-h-0">
+        <div className="rounded-2xl border border-red-200/90 bg-red-50/90 px-4 py-3.5 text-sm text-red-800 shadow-qh-sm font-medium leading-relaxed">
+          {lastError}
+        </div>
+      </div>
     );
   }
 
-  const tableShell = 'results-table-scroll overflow-auto flex-1 min-h-[140px] max-h-[min(52vh,560px)] rounded-lg border border-par-light-purple/50 bg-white always-show-scrollbar shadow-sm';
+  const tableShell =
+    'results-table-scroll overflow-auto flex-1 min-h-0 rounded-xl border border-par-light-purple/40 bg-white always-show-scrollbar shadow-qh-sm';
+
+  const thClass =
+    'text-left px-3 py-2.5 border-b border-par-purple/15 font-bold text-[11px] text-par-navy sticky top-0 z-[1] bg-[#ecebf7]';
 
   if (explainPlan !== null) {
     const keys = explainPlan[0] ? Object.keys(explainPlan[0]) : [];
     return (
-      <div className="flex flex-col flex-1 min-h-0 gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
-          <div className="text-xs font-medium text-par-text">
-            <span className="text-par-text/50 uppercase tracking-wider">Results</span>
-            <span className="mx-2 text-par-text/30">·</span>
+      <div className="flex flex-col flex-1 min-h-0 gap-3">
+        <div>
+          <SectionTitle>Results</SectionTitle>
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-par-navy font-semibold">
             <span>EXPLAIN plan</span>
-            {explainMs != null && <span className="text-par-text/55 font-normal ml-1">({explainMs} ms)</span>}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-1.5 text-[11px] text-par-text/65 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={autoAiAfterExplain}
-                onChange={(e) => setAutoAiAfterExplain(e.target.checked)}
-                className="rounded border-par-light-purple"
-              />
-              Auto AI after EXPLAIN
-            </label>
-            <button
-              type="button"
-              className="text-[11px] px-2.5 py-1 rounded-md bg-par-purple text-white font-medium hover:opacity-90"
-              onClick={queueExplainPlanAi}
-            >
-              AI: Interpret plan
-            </button>
+            {explainMs != null && <span className="text-xs font-medium text-par-text/45">({explainMs} ms)</span>}
           </div>
         </div>
         <div className={tableShell}>
           {keys.length === 0 ? (
-            <p className="p-4 text-sm text-par-text/50">Empty plan</p>
+            <p className="p-5 text-sm text-par-text/45 text-center font-medium">Empty plan</p>
           ) : (
             <table className="results-data-table w-full text-xs border-separate border-spacing-0">
               <thead>
                 <tr>
                   {keys.map((k) => (
-                    <th
-                      key={k}
-                      className="text-left px-3 py-2.5 border-b border-par-purple/20 font-semibold text-par-navy sticky top-0 z-[1] bg-[#e1e0f7]"
-                    >
+                    <th key={k} className={thClass}>
                       {k}
                     </th>
                   ))}
@@ -139,20 +92,20 @@ export function ResultsGrid() {
               </thead>
               <tbody className="text-par-text">
                 {explainPlan.map((row, i) => (
-                  <tr key={i} className="even:bg-[#f7f7fc] hover:bg-par-light-purple/25">
+                  <tr key={i} className="even:bg-[#f8f8fc] hover:bg-par-light-purple/20 transition-colors">
                     {keys.map((k) => {
                       const v = row[k];
                       const risky = explainCellRisk(k, v);
                       return (
                         <td
                           key={k}
-                          className={`px-3 py-2 align-top border-b border-par-light-purple/15 ${
+                          className={`px-3 py-2 align-top border-b border-par-light-purple/12 ${
                             wrapCells ? 'whitespace-normal break-words max-w-[min(28rem,40vw)]' : 'max-w-[14rem] truncate'
-                          } ${risky ? 'bg-orange-50/90 text-orange-950 font-medium' : 'font-mono text-[11px]'}`}
+                          } ${risky ? 'bg-orange-50/95 text-orange-950 font-semibold' : 'font-mono text-[11px]'}`}
                           title={v === null || v === undefined ? '' : String(v)}
                         >
                           {v === null || v === undefined ? (
-                            <span className="text-par-text/40 italic font-sans">NULL</span>
+                            <span className="text-par-text/35 italic font-sans font-normal">NULL</span>
                           ) : (
                             formatCellPreview(v)
                           )}
@@ -165,8 +118,13 @@ export function ResultsGrid() {
             </table>
           )}
         </div>
-        <label className="flex items-center gap-2 text-[11px] text-par-text/60">
-          <input type="checkbox" checked={wrapCells} onChange={(e) => setWrapCells(e.target.checked)} />
+        <label className="inline-flex items-center gap-2 text-[11px] font-medium text-par-text/50 cursor-pointer select-none w-fit">
+          <input
+            type="checkbox"
+            checked={wrapCells}
+            onChange={(e) => setWrapCells(e.target.checked)}
+            className="rounded border-par-light-purple"
+          />
           Wrap long cells
         </label>
       </div>
@@ -175,60 +133,47 @@ export function ResultsGrid() {
 
   if (lastMeta?.kind === 'mutate') {
     return (
-      <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-        Rows affected: <strong>{lastMeta.rowsAffected ?? 0}</strong>
+      <div className="flex flex-1 flex-col min-h-0">
+      <div className="rounded-2xl border border-emerald-200/90 bg-gradient-to-br from-emerald-50/90 to-white px-4 py-3.5 text-sm text-emerald-900 shadow-qh-sm">
+        <span className="font-bold">Rows affected:</span> <span className="font-mono font-bold">{lastMeta.rowsAffected ?? 0}</span>
         {lastMeta.executionTimeMs != null && (
-          <span className="text-green-700 ml-2">· {lastMeta.executionTimeMs} ms</span>
+          <span className="text-emerald-800/80 ml-2 text-xs font-semibold">· {lastMeta.executionTimeMs} ms</span>
         )}
+      </div>
       </div>
     );
   }
 
   if (lastColumns.length === 0 && lastRows.length === 0) {
     return (
-      <div className="text-sm text-par-text/45 py-8 text-center">Run a query to see results here.</div>
+      <div className="flex flex-1 flex-col min-h-0 items-center justify-center py-8 px-4 text-center">
+        <div className="rounded-2xl border border-dashed border-par-purple/25 bg-par-light-purple/15 px-6 py-8 max-w-xs">
+          <p className="text-sm font-bold text-par-navy/80">No result set yet</p>
+          <p className="text-xs text-par-text/45 mt-2 leading-relaxed">Run a query to show rows or an EXPLAIN plan here.</p>
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <div className="text-xs font-medium text-par-text">
-          <span className="text-par-text/50 uppercase tracking-wider">Results</span>
-          <span className="mx-2 text-par-text/30">·</span>
-          <span className="text-par-text/70 font-normal">
-            {lastMeta?.rowCount ?? lastRows.length} rows
-            {lastMeta?.truncated && <span className="text-par-orange ml-1">(limited)</span>}
-            {lastMeta?.executionTimeMs != null && <span className="ml-1">· {lastMeta.executionTimeMs} ms</span>}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="text-[11px] px-2.5 py-1 rounded-md border border-par-purple/40 text-par-purple font-medium hover:bg-par-light-purple/30"
-            onClick={queueResultsAi}
-          >
-            AI: Summarize sample
-          </button>
-          <button
-            type="button"
-            className="text-[11px] px-2.5 py-1 rounded-md border border-par-purple/40 text-par-purple font-medium hover:bg-par-light-purple/30"
-            onClick={queueExplainSqlAi}
-          >
-            AI: Explain query
-          </button>
-        </div>
+    <div className="flex flex-col flex-1 min-h-0 gap-3">
+      <div>
+        <SectionTitle>Results</SectionTitle>
+        <p className="text-sm text-par-navy font-semibold">
+          <span className="text-par-text/50 font-bold text-xs uppercase tracking-wider mr-2">Dataset</span>
+          {lastMeta?.rowCount ?? lastRows.length} rows
+          {lastMeta?.truncated && <span className="text-par-orange ml-2 text-xs font-bold">· limited</span>}
+          {lastMeta?.executionTimeMs != null && (
+            <span className="text-par-text/45 ml-2 text-xs font-semibold">· {lastMeta.executionTimeMs} ms</span>
+          )}
+        </p>
       </div>
       <div className={tableShell}>
         <table className="results-data-table w-full text-xs border-separate border-spacing-0">
           <thead>
             <tr>
               {lastColumns.map((c) => (
-                <th
-                  key={c.name}
-                  title={c.type}
-                  className="text-left px-3 py-2.5 border-b border-par-purple/20 font-semibold text-par-navy sticky top-0 z-[1] bg-[#e1e0f7]"
-                >
+                <th key={c.name} title={c.type} className={thClass}>
                   {c.name}
                 </th>
               ))}
@@ -236,7 +181,7 @@ export function ResultsGrid() {
           </thead>
           <tbody className="text-par-text">
             {lastRows.map((row, ri) => (
-              <tr key={ri} className="even:bg-[#f7f7fc] hover:bg-par-light-purple/25">
+              <tr key={ri} className="even:bg-[#f8f8fc] hover:bg-par-light-purple/20 transition-colors">
                 {row.map((cell, ci) => {
                   const col = lastColumns[ci];
                   const wide = col ? isWideTextColumn(col.name) : false;
@@ -244,7 +189,7 @@ export function ResultsGrid() {
                   return (
                     <td
                       key={ci}
-                      className={`px-3 py-2 align-top border-b border-par-light-purple/15 text-[11px] ${
+                      className={`px-3 py-2 align-top border-b border-par-light-purple/12 text-[11px] ${
                         wrap
                           ? 'whitespace-normal break-words max-w-[min(32rem,48vw)] font-mono leading-snug'
                           : 'whitespace-nowrap max-w-[12rem] truncate font-mono'
@@ -252,7 +197,7 @@ export function ResultsGrid() {
                       title={cell === null || cell === undefined ? '' : String(cell)}
                     >
                       {cell === null || cell === undefined ? (
-                        <span className="text-par-text/40 italic font-sans">NULL</span>
+                        <span className="text-par-text/35 italic font-sans">NULL</span>
                       ) : (
                         formatCellPreview(cell)
                       )}
@@ -264,9 +209,9 @@ export function ResultsGrid() {
           </tbody>
         </table>
       </div>
-      <label className="flex items-center gap-2 text-[11px] text-par-text/60">
+      <label className="inline-flex items-center gap-2 text-[11px] font-medium text-par-text/50 cursor-pointer select-none w-fit">
         <input type="checkbox" checked={wrapCells} onChange={(e) => setWrapCells(e.target.checked)} />
-        Wrap all columns (wide SQL/text columns wrap by default)
+        Wrap all columns (wide text columns wrap by default)
       </label>
     </div>
   );

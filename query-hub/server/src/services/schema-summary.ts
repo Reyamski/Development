@@ -1,7 +1,7 @@
 import type { RowDataPacket } from 'mysql2';
 import type { Connection } from 'mysql2/promise';
 
-/** Build a compact schema string for Claude system prompts. */
+/** Build a compact schema string for Kiro / LLM system prompts. */
 export async function buildSchemaSummary(conn: Connection, database: string, maxTables = 40): Promise<string> {
   if (!database?.trim()) return '';
   const [tables] = await conn.query<RowDataPacket[]>(

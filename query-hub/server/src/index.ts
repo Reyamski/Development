@@ -1,5 +1,12 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// `server/src/tools/query-hub/.env` — same folder as root package / .env.example
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 import teleportRouter from './routes/teleport.js';
 import queryRouter from './routes/query.js';
 import schemaRouter from './routes/schema.js';
@@ -18,9 +25,8 @@ app.use(
       'Content-Type',
       'Authorization',
       'X-Query-Hub-AI-Provider',
-      'X-Query-Hub-Anthropic-Key',
-      'X-Query-Hub-OpenAI-Key',
-      'X-Query-Hub-OpenAI-Model',
+      'X-Query-Hub-Aws-Account-Id',
+      'X-Query-Hub-Bedrock-Region',
     ],
   }),
 );

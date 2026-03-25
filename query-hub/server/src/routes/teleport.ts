@@ -26,10 +26,11 @@ router.get('/status', async (_req: Request, res: Response) => {
 router.get('/clusters', async (_req: Request, res: Response) => {
   try {
     const clusters = await getClusters();
-    res.json({ clusters });
+    res.json({ clusters: Array.isArray(clusters) ? clusters : [] });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: message });
+    console.error('[query-hub] GET /api/teleport/clusters failed:', err);
+    // Never 500 here — empty list keeps the UI usable; tsh/status explains real blockers
+    res.status(200).json({ clusters: [] });
   }
 });
 

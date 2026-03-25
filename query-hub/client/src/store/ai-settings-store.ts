@@ -1,89 +1,69 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useAppStore } from './app-store';
 
-/** How AI calls are authenticated */
-export type AiAuthMode = 'server' | 'email_team' | 'anthropic' | 'openai';
-
-interface AiSettingsState {
-  aiAuthMode: AiAuthMode;
-  /** Session after work-email verify (Bearer token) */
-  emailAuthToken: string | null;
-  emailAuthEmail: string | null;
-  /** Personal Anthropic (Claude) API key — stored only in browser */
-  anthropicApiKey: string;
-  /** Personal OpenAI API key — stored only in browser */
-  openaiApiKey: string;
-  /** e.g. gpt-4o-mini, gpt-4o */
-  openaiModel: string;
-  setAiAuthMode: (m: AiAuthMode) => void;
-  setAnthropicApiKey: (k: string) => void;
-  setOpenaiApiKey: (k: string) => void;
-  setOpenaiModel: (m: string) => void;
-  setEmailAuth: (token: string | null, email: string | null) => void;
-  clearPersonalKeys: () => void;
-  clearEmailAuth: () => void;
+/** Kiro: AWS SSO account + region only (same profile resolution as RDS Replica Lag). Bedrock model is server env only. */
+interface KiroSettingsState {
+  awsAccountId: string;
+  awsRegion: string;
+  setAwsAccountId: (v: string) => void;
+  setAwsRegion: (v: string) => void;
+  clearKiroSelection: () => void;
 }
 
-export const useAiSettingsStore = create<AiSettingsState>()(
+const PERSIST_VERSION = 4;
+
+export const useAiSettingsStore = create<KiroSettingsState>()(
   persist(
     (set) => ({
-      aiAuthMode: 'server',
-      emailAuthToken: null,
-      emailAuthEmail: null,
-      anthropicApiKey: '',
-      openaiApiKey: '',
-      openaiModel: 'gpt-4o-mini',
+      awsAccountId: '',
+      awsRegion: 'us-east-1',
 
-      setAiAuthMode: (aiAuthMode) => set({ aiAuthMode }),
-      setAnthropicApiKey: (anthropicApiKey) => set({ anthropicApiKey }),
-      setOpenaiApiKey: (openaiApiKey) => set({ openaiApiKey }),
-      setOpenaiModel: (openaiModel) => set({ openaiModel }),
-      setEmailAuth: (emailAuthToken, emailAuthEmail) => set({ emailAuthToken, emailAuthEmail }),
-      clearPersonalKeys: () => set({ anthropicApiKey: '', openaiApiKey: '' }),
-      clearEmailAuth: () => set({ emailAuthToken: null, emailAuthEmail: null }),
+      setAwsAccountId: (awsAccountId) => set({ awsAccountId }),
+      setAwsRegion: (awsRegion) => set({ awsRegion }),
+      clearKiroSelection: () => set({ awsAccountId: '', awsRegion: 'us-east-1' }),
     }),
     {
-      name: 'query-hub:ai-settings',
+      name: 'query-hub:kiro-settings',
+      version: PERSIST_VERSION,
+      migrate: (persisted, version) => {
+        if (version >= PERSIST_VERSION) return persisted as Pick<KiroSettingsState, 'awsAccountId' | 'awsRegion'>;
+        const p = (persisted ?? {}) as Record<string, unknown>;
+        return {
+          awsAccountId: typeof p.awsAccountId === 'string' ? p.awsAccountId : '',
+          awsRegion:
+            typeof p.awsRegion === 'string'
+              ? p.awsRegion
+              : typeof p.bedrockRegion === 'string'
+                ? p.bedrockRegion
+                : 'us-east-1',
+        };
+      },
       partialize: (s) => ({
-        aiAuthMode: s.aiAuthMode,
-        emailAuthToken: s.emailAuthToken,
-        emailAuthEmail: s.emailAuthEmail,
-        anthropicApiKey: s.anthropicApiKey,
-        openaiApiKey: s.openaiApiKey,
-        openaiModel: s.openaiModel,
+        awsAccountId: s.awsAccountId,
+        awsRegion: s.awsRegion,
       }),
     },
   ),
 );
 
-/** Headers sent with every /api/ai/* request (keys never stored on Query Hub server). */
+/**
+ * Headers for Kiro / Bedrock — model ID from QUERY_HUB_BEDROCK_MODEL_ID on the server.
+ * Prefer AWS account + region from the selected Teleport MySQL instance (same as RDS Replica Lag);
+ * fallback to saved Kiro fields when Teleport metadata is missing.
+ */
 export function buildAiHeaders(): Record<string, string> {
+  const app = useAppStore.getState();
+  const inst = app.instances.find((i) => i.name === app.selectedInstance);
   const s = useAiSettingsStore.getState();
-
-  if (s.aiAuthMode === 'email_team') {
-    const h: Record<string, string> = {
-      'X-Query-Hub-AI-Provider': 'email_team',
-    };
-    if (s.emailAuthToken?.trim()) {
-      h.Authorization = `Bearer ${s.emailAuthToken.trim()}`;
-    }
-    return h;
-  }
-
+  const accountId = (inst?.accountId?.trim() || s.awsAccountId.trim()) || '';
+  const region = (inst?.region?.trim() || s.awsRegion.trim() || 'us-east-1') || 'us-east-1';
   const h: Record<string, string> = {
-    'X-Query-Hub-AI-Provider': s.aiAuthMode,
+    'X-Query-Hub-AI-Provider': 'bedrock',
   };
-  if (s.aiAuthMode === 'anthropic' && s.anthropicApiKey.trim()) {
-    h['X-Query-Hub-Anthropic-Key'] = s.anthropicApiKey.trim();
+  if (accountId) {
+    h['X-Query-Hub-Aws-Account-Id'] = accountId;
   }
-  if (s.aiAuthMode === 'openai') {
-    if (s.openaiApiKey.trim()) {
-      h['X-Query-Hub-OpenAI-Key'] = s.openaiApiKey.trim();
-    }
-    const model = s.openaiModel.trim();
-    if (model) {
-      h['X-Query-Hub-OpenAI-Model'] = model;
-    }
-  }
+  h['X-Query-Hub-Bedrock-Region'] = region;
   return h;
 }

@@ -14,25 +14,26 @@ export function useTeleport() {
   const store = useAppStore();
   const loginPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const refreshClusters = useCallback(() => {
-    teleportClusters()
-      .then(({ clusters }) => {
-        useAppStore.getState().setClusters(clusters);
+  /** Re-check tsh on the API host, then load clusters only if tsh exists (avoids noisy errors). */
+  const refreshClusters = useCallback(async () => {
+    try {
+      const { available } = await teleportStatus();
+      useAppStore.getState().setTshAvailable(available);
+      if (!available) {
+        useAppStore.getState().setClusters([]);
         useAppStore.getState().setClustersLoadError('');
-      })
-      .catch((e) => {
-        useAppStore.getState().setClustersLoadError(
-          e instanceof Error
-            ? e.message
-            : 'Failed to load clusters — is the Query Hub API running (port 3003) and is /api proxied?',
-        );
-      });
-  }, []);
-
-  useEffect(() => {
-    teleportStatus()
-      .then(({ available }) => useAppStore.getState().setTshAvailable(available))
-      .catch(() => useAppStore.getState().setTshAvailable(false));
+        return;
+      }
+      const { clusters } = await teleportClusters();
+      useAppStore.getState().setClusters(clusters);
+      useAppStore.getState().setClustersLoadError('');
+    } catch (e) {
+      useAppStore.getState().setClustersLoadError(
+        e instanceof Error
+          ? e.message
+          : 'Failed to load clusters — is the Query Hub API running (port 3003) and is /api proxied?',
+      );
+    }
   }, []);
 
   useEffect(() => {
@@ -114,14 +115,18 @@ export function useTeleport() {
   );
 
   const login = useCallback(async () => {
-    if (!store.selectedCluster) return;
+    const cluster = useAppStore.getState().selectedCluster;
+    if (!cluster) return;
+    useAppStore.getState().setError('');
     try {
-      await teleportLogin(store.selectedCluster);
+      await teleportLogin(cluster);
       startLoginPolling();
-    } catch {
-      /* ignore */
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : 'Teleport SSO login failed to start — check API terminal and network';
+      useAppStore.getState().setError(msg);
     }
-  }, [store.selectedCluster, startLoginPolling]);
+  }, [startLoginPolling]);
 
   useEffect(() => {
     const s = useAppStore.getState();

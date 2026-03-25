@@ -7,6 +7,17 @@ body {
   font-family: 'Manrope', sans-serif;
   background: #ffffff;
   color: #212438;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(104, 100, 209, 0.2);
+  color: #212438;
+}
+
+input[type='checkbox'] {
+  accent-color: #6864d1;
 }
 
 .always-show-scrollbar::-webkit-scrollbar {

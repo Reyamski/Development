@@ -51,6 +51,51 @@ export function authEmailVerify(email: string, code: string): Promise<{ token: s
   return post('/api/auth/email/verify', { email, code });
 }
 
+export interface KiroAwsAccountRow {
+  accountId: string;
+  accountName: string;
+  emailAddress: string;
+}
+
+/** SSO accounts from cached session — same idea as main EDT Hub / Replica Lag tooling. */
+export function kiroListAwsAccounts(): Promise<{ accounts: KiroAwsAccountRow[] }> {
+  return get('/api/ai/aws-accounts');
+}
+
+/** Server-only Bedrock account/region overrides (no secrets). */
+export function kiroEnvHints(): Promise<{
+  bedrockAccountIdOverride: string | null;
+  bedrockRegionDefault: string | null;
+  useKiroCli: boolean;
+  /** Server tries Kiro CLI when Bedrock model ID is unset */
+  autoKiroCliFallback: boolean;
+  /** API host resolved `kiro-cli` (or `QUERY_HUB_KIRO_CLI_PATH`); null if not found */
+  kiroCliFound: boolean;
+  kiroCliResolvedPath: string | null;
+}> {
+  return get('/api/ai/kiro-env-hints');
+}
+
+/** Same as EDT Hub `GET /api/aws/sso-status`. */
+export function kiroSsoStatus(): Promise<{ loggedIn: boolean }> {
+  return get('/api/ai/sso-status');
+}
+
+/** Same as EDT Hub `POST /api/aws/sso-login` — device flow on the API host (`--profile default` or QUERY_HUB_SSO_DEVICE_PROFILE). */
+export function kiroTriggerDeviceSsoLogin(): Promise<{ started: boolean }> {
+  return post('/api/ai/sso-login', {});
+}
+
+/** Same as EDT Hub `GET /api/aws/sso-login-info` — device URL + code while CLI runs. */
+export function kiroDeviceSsoLoginInfo(): Promise<{ code: string | null; url: string | null }> {
+  return get('/api/ai/sso-login-info');
+}
+
+/** Triggers `aws sso login --profile rds-dba-<accountId>` on the API host (opens browser). */
+export function kiroAwsSsoLogin(accountId: string, region: string): Promise<{ started: boolean; profileName: string }> {
+  return post('/api/ai/aws-sso-login', { accountId: accountId.trim(), region: region.trim() });
+}
+
 export function teleportStatus(): Promise<{ available: boolean; tshPath: string | null }> {
   return get('/api/teleport/status');
 }
@@ -140,6 +185,32 @@ export function schemaColumns(
 ): Promise<{ columns: import('./types').SchemaColumn[] }> {
   return get(
     `/api/schema/columns?db=${encodeURIComponent(db)}&table=${encodeURIComponent(table)}`,
+  );
+}
+
+export function schemaRoutines(db: string): Promise<{ routines: import('./types').SchemaRoutine[] }> {
+  return get(`/api/schema/routines?db=${encodeURIComponent(db)}`);
+}
+
+export function schemaEvents(db: string): Promise<{ events: import('./types').SchemaEvent[] }> {
+  return get(`/api/schema/events?db=${encodeURIComponent(db)}`);
+}
+
+export function schemaForeignKeys(db: string): Promise<{ edges: import('./types').SchemaForeignKeyEdge[] }> {
+  return get(`/api/schema/foreign-keys?db=${encodeURIComponent(db)}`);
+}
+
+export function schemaObjectDependencies(db: string): Promise<import('./types').SchemaObjectDependencies> {
+  return get(`/api/schema/object-dependencies?db=${encodeURIComponent(db)}`);
+}
+
+export function schemaObjectDdl(
+  db: string,
+  name: string,
+  kind: import('./types').SchemaDdlKind,
+): Promise<{ ddl: string }> {
+  return get(
+    `/api/schema/ddl?db=${encodeURIComponent(db)}&name=${encodeURIComponent(name)}&kind=${encodeURIComponent(kind)}`,
   );
 }
 
