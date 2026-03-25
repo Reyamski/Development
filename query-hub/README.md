@@ -89,7 +89,12 @@ sequenceDiagram
 
 ### 1. Get the code
 
-Clone or pull the **EDT Hub** monorepo and use the branch your team uses for Query Hub.
+Clone or pull the repository that contains Query Hub and use the branch your team recommends.
+
+| Layout | Path to this folder |
+|--------|---------------------|
+| **EDT Hub** monorepo | `edt-hub/server/src/tools/query-hub` |
+| **Toolkit repos** (e.g. **punchh/eddbatoolkit**, **Reyamski/Development**) | **`query-hub/`** at the **repository root** |
 
 ### 2. Install Node.js 18+
 
@@ -118,7 +123,7 @@ tsh version
 
 ### 4. Install npm dependencies and env file
 
-Always run these commands from **`edt-hub/server/src/tools/query-hub`** (the folder that contains this README and the workspace `package.json`). **`npm install`** installs **server**, **client**, and client deps including **Mermaid** (ER diagram UI).
+Always run these commands from the folder that contains this README and the workspace **`package.json`** (in EDT Hub that path is **`edt-hub/server/src/tools/query-hub`**; in other repos it may be a top-level **`query-hub/`**). Dependencies are **not** committed (`node_modules`, build output like **`client/dist`**, and Vite cache are ignored) — after a fresh clone or a file copy that omitted those folders, you still run **`npm install`** once here. **`npm install`** installs **server**, **client**, and client deps including **Mermaid** (ER diagram UI).
 
 **Windows (PowerShell):**
 
@@ -144,7 +149,7 @@ Edit **`.env`** as needed (see [Environment variables](#environment-variables-ap
 
 ## Run locally (every day)
 
-From **`server/src/tools/query-hub`**:
+From this **`query-hub`** folder (see [Get the code](#1-get-the-code) for paths):
 
 ```bash
 npm run dev
@@ -200,7 +205,7 @@ After login, profile files appear under:
 
 ### 2. Start the app
 
-1. From **`server/src/tools/query-hub`**, run **`npm run dev`**.
+1. From this **`query-hub`** folder, run **`npm run dev`**.
 2. In your browser, open **http://localhost:5180** (the Vite dev server proxies **`/api`** to port **3003** — you normally do not open 3003 for the UI).
 
 ### 3. Sidebar → **Connection**
@@ -246,8 +251,8 @@ Opens a panel for the **currently selected database** (use the database dropdown
 **Object dependencies (Refs)**
 
 - Loaded with the schema via **`GET /api/schema/object-dependencies?db=…`** (response groups **tables** vs **views**; events add **routines**).
-- **Views** / **routines**: **MySQL 8.0.13+** prefers **`VIEW_TABLE_USAGE`** and **`ROUTINE_TABLE_USAGE`**; otherwise definitions are parsed for backtick identifiers.
-- **Events**: **`CALL …(`** targets plus backtick identifiers matched to procedures/functions in the schema; tables/views split by type.
+- **Views** / **routines**: **`VIEW_TABLE_USAGE`** and **`ROUTINE_TABLE_USAGE`** (MySQL 8.0.13+) are **merged** with parsed definitions (backticks + unqualified and **`schema.table`** unquoted names). If **`ROUTINE_DEFINITION`** / **`VIEW_DEFINITION`** is empty, the API falls back to **`SHOW CREATE`** text before parsing.
+- **Events**: parsed **tables/views** like routines; **routines** from **`CALL`**, backticks, and **`routine_name(`** against known procedures/functions in the schema.
 
 **ER diagram**
 
@@ -346,7 +351,7 @@ Copy **`client/.env.example`** → **`client/.env`** if you use these.
 ## Development commands
 
 ```powershell
-cd server\src\tools\query-hub
+cd path\to\your-repo\query-hub
 npm run dev          # API + UI
 npm run build        # Production build
 npx -w client tsc --noEmit
