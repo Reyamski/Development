@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useMemo, useEffect, type ReactNode } from 'react';
 import { useQueryStore } from '../store/query-store';
 
 function isWideTextColumn(name: string): boolean {
@@ -39,8 +39,37 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
+function SortTh({
+  label, colKey, title, sortCol, sortDir, onSort,
+}: {
+  label: string; colKey: string; title?: string;
+  sortCol: string | null; sortDir: 'asc' | 'desc';
+  onSort: (k: string) => void;
+}) {
+  const active = sortCol === colKey;
+  return (
+    <th
+      title={title ? `${title} — click to sort` : 'click to sort'}
+      className="text-left px-3 py-2.5 border-b border-par-purple/15 font-bold text-[11px] text-par-navy sticky top-0 z-[1] bg-[#ecebf7] cursor-pointer select-none hover:bg-[#e2e0f5] transition-colors"
+      onClick={() => onSort(colKey)}
+    >
+      <span className="flex items-center gap-1">
+        {label}
+        {active ? (
+          <span className="text-par-purple">{sortDir === 'asc' ? '▲' : '▼'}</span>
+        ) : (
+          <span className="text-par-navy/20 text-[9px]">⇅</span>
+        )}
+      </span>
+    </th>
+  );
+}
+
 export function ResultsGrid() {
   const [wrapCells, setWrapCells] = useState(false);
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const lastColumns = useQueryStore((s) => s.lastColumns);
   const lastRows = useQueryStore((s) => s.lastRows);
@@ -48,6 +77,36 @@ export function ResultsGrid() {
   const lastError = useQueryStore((s) => s.lastError);
   const explainPlan = useQueryStore((s) => s.explainPlan);
   const explainMs = useQueryStore((s) => s.explainMs);
+
+  // Reset sort when a new query runs
+  useEffect(() => { setSortCol(null); setSortDir('asc'); }, [lastColumns]);
+
+  function handleSort(col: string) {
+    if (sortCol === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortCol(col); setSortDir('asc'); }
+  }
+
+  function copyCellValue(value: unknown, key: string) {
+    const text = value === null || value === undefined ? '' : String(value);
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 900);
+    });
+  }
+
+  const sortedRows = useMemo(() => {
+    if (!sortCol) return lastRows;
+    const colIdx = lastColumns.findIndex((c) => c.name === sortCol);
+    if (colIdx === -1) return lastRows;
+    return [...lastRows].sort((a, b) => {
+      const av = a[colIdx], bv = b[colIdx];
+      if (av === null || av === undefined) return 1;
+      if (bv === null || bv === undefined) return -1;
+      const an = Number(av), bn = Number(bv);
+      if (!Number.isNaN(an) && !Number.isNaN(bn)) return sortDir === 'asc' ? an - bn : bn - an;
+      return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+    });
+  }, [lastRows, lastColumns, sortCol, sortDir]);
 
   if (lastError) {
     return (
@@ -62,11 +121,20 @@ export function ResultsGrid() {
   const tableShell =
     'results-table-scroll overflow-auto flex-1 min-h-0 rounded-xl border border-par-light-purple/40 bg-white always-show-scrollbar shadow-qh-sm';
 
-  const thClass =
-    'text-left px-3 py-2.5 border-b border-par-purple/15 font-bold text-[11px] text-par-navy sticky top-0 z-[1] bg-[#ecebf7]';
-
   if (explainPlan !== null) {
     const keys = explainPlan[0] ? Object.keys(explainPlan[0]) : [];
+    const sortedExplain =
+      sortCol && keys.includes(sortCol)
+        ? [...explainPlan].sort((a, b) => {
+            const av = a[sortCol], bv = b[sortCol];
+            if (av === null || av === undefined) return 1;
+            if (bv === null || bv === undefined) return -1;
+            const an = Number(av), bn = Number(bv);
+            if (!Number.isNaN(an) && !Number.isNaN(bn)) return sortDir === 'asc' ? an - bn : bn - an;
+            return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+          })
+        : explainPlan;
+
     return (
       <div className="flex flex-col flex-1 min-h-0 gap-3">
         <div>
@@ -84,25 +152,28 @@ export function ResultsGrid() {
               <thead>
                 <tr>
                   {keys.map((k) => (
-                    <th key={k} className={thClass}>
-                      {k}
-                    </th>
+                    <SortTh key={k} label={k} colKey={k} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
                   ))}
                 </tr>
               </thead>
               <tbody className="text-par-text">
-                {explainPlan.map((row, i) => (
+                {sortedExplain.map((row, i) => (
                   <tr key={i} className="even:bg-[#f8f8fc] hover:bg-par-light-purple/20 transition-colors">
                     {keys.map((k) => {
                       const v = row[k];
                       const risky = explainCellRisk(k, v);
+                      const cellKey = `e-${i}-${k}`;
+                      const copied = copiedKey === cellKey;
                       return (
                         <td
                           key={k}
-                          className={`px-3 py-2 align-top border-b border-par-light-purple/12 ${
+                          className={`px-3 py-2 align-top border-b border-par-light-purple/12 cursor-text select-text ${
+                            copied ? 'bg-emerald-50' : ''
+                          } ${
                             wrapCells ? 'whitespace-normal break-words max-w-[min(28rem,40vw)]' : 'max-w-[14rem] truncate'
                           } ${risky ? 'bg-orange-50/95 text-orange-950 font-semibold' : 'font-mono text-[11px]'}`}
-                          title={v === null || v === undefined ? '' : String(v)}
+                          title={copied ? 'Copied!' : (v === null || v === undefined ? '' : String(v))}
+                          onClick={() => copyCellValue(v, cellKey)}
                         >
                           {v === null || v === undefined ? (
                             <span className="text-par-text/35 italic font-sans font-normal">NULL</span>
@@ -134,12 +205,13 @@ export function ResultsGrid() {
   if (lastMeta?.kind === 'mutate') {
     return (
       <div className="flex flex-1 flex-col min-h-0">
-      <div className="rounded-2xl border border-emerald-200/90 bg-gradient-to-br from-emerald-50/90 to-white px-4 py-3.5 text-sm text-emerald-900 shadow-qh-sm">
-        <span className="font-bold">Rows affected:</span> <span className="font-mono font-bold">{lastMeta.rowsAffected ?? 0}</span>
-        {lastMeta.executionTimeMs != null && (
-          <span className="text-emerald-800/80 ml-2 text-xs font-semibold">· {lastMeta.executionTimeMs} ms</span>
-        )}
-      </div>
+        <div className="rounded-2xl border border-emerald-200/90 bg-gradient-to-br from-emerald-50/90 to-white px-4 py-3.5 text-sm text-emerald-900 shadow-qh-sm">
+          <span className="font-bold">Rows affected:</span>{' '}
+          <span className="font-mono font-bold">{lastMeta.rowsAffected ?? 0}</span>
+          {lastMeta.executionTimeMs != null && (
+            <span className="text-emerald-800/80 ml-2 text-xs font-semibold">· {lastMeta.executionTimeMs} ms</span>
+          )}
+        </div>
       </div>
     );
   }
@@ -173,28 +245,39 @@ export function ResultsGrid() {
           <thead>
             <tr>
               {lastColumns.map((c) => (
-                <th key={c.name} title={c.type} className={thClass}>
-                  {c.name}
-                </th>
+                <SortTh
+                  key={c.name}
+                  label={c.name}
+                  colKey={c.name}
+                  title={c.type}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                />
               ))}
             </tr>
           </thead>
           <tbody className="text-par-text">
-            {lastRows.map((row, ri) => (
+            {sortedRows.map((row, ri) => (
               <tr key={ri} className="even:bg-[#f8f8fc] hover:bg-par-light-purple/20 transition-colors">
                 {row.map((cell, ci) => {
                   const col = lastColumns[ci];
                   const wide = col ? isWideTextColumn(col.name) : false;
                   const wrap = wrapCells || wide;
+                  const cellKey = `${ri}-${ci}`;
+                  const copied = copiedKey === cellKey;
                   return (
                     <td
                       key={ci}
-                      className={`px-3 py-2 align-top border-b border-par-light-purple/12 text-[11px] ${
+                      className={`px-3 py-2 align-top border-b border-par-light-purple/12 text-[11px] cursor-text select-text ${
+                        copied ? 'bg-emerald-50' : ''
+                      } ${
                         wrap
                           ? 'whitespace-normal break-words max-w-[min(32rem,48vw)] font-mono leading-snug'
                           : 'whitespace-nowrap max-w-[12rem] truncate font-mono'
                       }`}
-                      title={cell === null || cell === undefined ? '' : String(cell)}
+                      title={copied ? 'Copied!' : (cell === null || cell === undefined ? 'NULL' : String(cell))}
+                      onClick={() => copyCellValue(cell, cellKey)}
                     >
                       {cell === null || cell === undefined ? (
                         <span className="text-par-text/35 italic font-sans">NULL</span>
