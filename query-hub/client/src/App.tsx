@@ -9,9 +9,10 @@ import { ResultsGrid } from './components/ResultsGrid';
 import { QueryHistoryPanel } from './components/QueryHistoryPanel';
 import { WorkspaceTabBar } from './components/WorkspaceTabBar';
 import { HeaderSchemaMenu } from './components/HeaderSchemaMenu';
+import { AiPanel } from './components/AiPanel';
 import { useQueryActions } from './hooks/useQuery';
 
-type SidebarTab = 'connection' | 'history';
+type SidebarTab = 'connection' | 'history' | 'ai';
 
 export default function App() {
   const connectionResult = useAppStore((s) => s.connectionResult);
@@ -59,6 +60,7 @@ export default function App() {
   const tabDefs: { id: SidebarTab; label: string; hint: string }[] = [
     { id: 'connection', label: 'Connection', hint: 'Cluster & MySQL' },
     { id: 'history', label: 'History', hint: 'Runs & saved' },
+    { id: 'ai', label: 'AI', hint: 'Ask · Explain · Optimize' },
   ];
 
   const tabBtn = ({ id, label, hint }: { id: SidebarTab; label: string; hint: string }) => (
@@ -97,12 +99,17 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2 shrink-0 ml-auto sm:ml-0">
             <HeaderSchemaMenu />
-            <span
-              className="inline-flex items-center px-3 py-1.5 rounded-full text-[9px] font-bold uppercase tracking-[0.14em] text-white/90 bg-white/[0.08] border border-white/20 backdrop-blur-sm"
-              title="In-app assistant is planned for a future release"
+            <button
+              type="button"
+              onClick={() => setSidebarTab('ai')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-bold uppercase tracking-[0.14em] border backdrop-blur-sm transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 ${
+                sidebarTab === 'ai'
+                  ? 'text-par-navy bg-white border-white shadow-qh-sm'
+                  : 'text-white/90 bg-white/[0.08] border-white/20 hover:bg-white/[0.15] hover:border-white/35'
+              }`}
             >
-              AI · Soon
-            </span>
+              ✦ AI
+            </button>
             <button
               type="button"
               onClick={() => window.location.reload()}
@@ -130,24 +137,33 @@ export default function App() {
               </nav>
             </div>
           </div>
-          <div className="px-3 pb-3 pt-1 overflow-y-auto flex-1 min-h-0 always-show-scrollbar">
-            {sidebarTab === 'connection' && (
-              <>
-                <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] mb-3 px-1 text-par-navy/65">
-                  Teleport
-                </h2>
-                <TeleportControls />
-              </>
-            )}
-            {sidebarTab === 'history' && (
-              <>
-                <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] mb-2 px-1 text-par-navy/65">
-                  History & saved
-                </h2>
-                <QueryHistoryPanel />
-              </>
-            )}
-          </div>
+          {sidebarTab !== 'ai' ? (
+            <div className="px-3 pb-3 pt-1 overflow-y-auto flex-1 min-h-0 always-show-scrollbar">
+              {sidebarTab === 'connection' && (
+                <>
+                  <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] mb-3 px-1 text-par-navy/65">
+                    Teleport
+                  </h2>
+                  <TeleportControls />
+                </>
+              )}
+              {sidebarTab === 'history' && (
+                <>
+                  <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] mb-2 px-1 text-par-navy/65">
+                    History & saved
+                  </h2>
+                  <QueryHistoryPanel />
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="px-3 pb-3 pt-1 flex flex-col flex-1 min-h-0">
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] mb-3 px-1 text-par-navy/65 shrink-0">
+                AI Assistant
+              </h2>
+              <AiPanel />
+            </div>
+          )}
         </aside>
 
         <section className="flex-1 flex flex-col min-w-0 overflow-hidden p-3 sm:p-5 min-h-0">
