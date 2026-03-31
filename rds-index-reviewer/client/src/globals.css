@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Manrope', system-ui, sans-serif;
+  }
+  code,
+  pre {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+  }
+}
+
+@layer components {
+  .par-card {
+    @apply bg-white border border-par-light-purple/25 rounded-xl shadow-par;
+  }
+  .par-card-inner {
+    @apply bg-par-light-purple/5 border border-par-light-purple/20 rounded-lg;
+  }
+  .par-input {
+    @apply w-full bg-white border border-par-light-purple/35 rounded-lg px-3 py-2 text-par-text placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-par-purple/25 focus:border-par-purple;
+  }
+  .par-btn-primary {
+    @apply bg-par-purple hover:bg-violet-600 text-white font-semibold rounded-lg px-4 py-2 transition-colors shadow-sm;
+  }
+  .par-btn-secondary {
+    @apply bg-white border border-par-light-purple/35 text-par-text hover:bg-par-light-purple/10 rounded-lg px-3 py-2 text-sm font-medium transition-colors;
+  }
+}
+
+@layer utilities {
+  .card-hover {
+    @apply transition-all duration-300 ease-in-out hover:-translate-y-0.5 hover:shadow-md;
+  }
+
+  .border-accent-jira {
+    @apply border-l-4 border-l-par-purple;
+  }
+
+  .border-accent-database {
+    @apply border-l-4 border-l-par-orange;
+  }
+
+  .border-accent-config {
+    @apply border-l-4 border-amber-500;
+  }
+}
+
+/* Purple-tinted scrollbars (PAR) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(167 139 250 / 0.45) rgb(167 139 250 / 0.12);
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: rgb(167 139 250 / 0.12);
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(124 58 237 / 0.35);
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(124 58 237 / 0.55);
+}
