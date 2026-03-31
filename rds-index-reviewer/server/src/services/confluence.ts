@@ -17,6 +17,9 @@ type Config = {
 
 let cachedSecretToken: string | null = null;
 
+const DEFAULT_AWS_REGION = 'us-east-1';
+const DEFAULT_CONFLUENCE_SPACE = 'EDT';
+
 function normalizeConfluenceBaseUrl(url?: string): string | undefined {
   if (!url) return undefined;
   return url.replace(/\/+$/, '').replace(/\/wiki$/, '');
@@ -34,8 +37,8 @@ function getConfig(): Config {
       process.env.CONFLUENCE_API_TOKEN_SECRET_REGION ||
       process.env.AWS_REGION ||
       process.env.AWS_DEFAULT_REGION ||
-      'us-east-1',
-    spaceKey: process.env.CONFLUENCE_SPACE_KEY || 'EDT',
+      DEFAULT_AWS_REGION,
+    spaceKey: process.env.CONFLUENCE_SPACE_KEY || DEFAULT_CONFLUENCE_SPACE,
     parentPageId: process.env.CONFLUENCE_PARENT_PAGE_ID,
   };
 }
