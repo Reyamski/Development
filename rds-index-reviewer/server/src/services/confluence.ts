@@ -10,15 +10,23 @@ type Config = {
   email?: string;
   token?: string;
   tokenSecretId?: string;
-  tokenSecretRegion: string;
   spaceKey: string;
   parentPageId?: string;
 };
 
 let cachedSecretToken: string | null = null;
 
-const DEFAULT_AWS_REGION = 'us-east-1';
 const DEFAULT_CONFLUENCE_SPACE = 'EDT';
+
+function resolveAwsRegion(): string {
+  const fallback = 'us-east-1';
+  return (
+    process.env.CONFLUENCE_API_TOKEN_SECRET_REGION ||
+    process.env.AWS_REGION ||
+    process.env.AWS_DEFAULT_REGION ||
+    fallback
+  );
+}
 
 function normalizeConfluenceBaseUrl(url?: string): string | undefined {
   if (!url) return undefined;
@@ -33,11 +41,6 @@ function getConfig(): Config {
     tokenSecretId:
       process.env.CONFLUENCE_API_TOKEN_SECRET_NAME ||
       process.env.ATLASSIAN_API_TOKEN_SECRET_NAME,
-    tokenSecretRegion:
-      process.env.CONFLUENCE_API_TOKEN_SECRET_REGION ||
-      process.env.AWS_REGION ||
-      process.env.AWS_DEFAULT_REGION ||
-      DEFAULT_AWS_REGION,
     spaceKey: process.env.CONFLUENCE_SPACE_KEY || DEFAULT_CONFLUENCE_SPACE,
     parentPageId: process.env.CONFLUENCE_PARENT_PAGE_ID,
   };
@@ -85,7 +88,7 @@ function extractSecretValue(secretString: string): string {
 }
 
 async function resolveConfluenceToken(): Promise<string> {
-  const { token, tokenSecretId, tokenSecretRegion } = getConfig();
+  const { token, tokenSecretId } = getConfig();
 
   if (token) {
     return token;
@@ -101,6 +104,8 @@ async function resolveConfluenceToken(): Promise<string> {
     );
   }
 
+  const awsRegion = resolveAwsRegion();
+
   try {
     const { stdout } = await execFileAsync(
       'aws',
@@ -110,7 +115,7 @@ async function resolveConfluenceToken(): Promise<string> {
         '--secret-id',
         tokenSecretId,
         '--region',
-        tokenSecretRegion,
+        awsRegion,
         '--query',
         'SecretString',
         '--output',
@@ -124,7 +129,7 @@ async function resolveConfluenceToken(): Promise<string> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Failed to load Confluence API token from AWS Secrets Manager secret "${tokenSecretId}" in region "${tokenSecretRegion}": ${message}`
+      `Failed to load Confluence API token from AWS Secrets Manager secret "${tokenSecretId}" in region "${awsRegion}": ${message}`
     );
   }
 }
