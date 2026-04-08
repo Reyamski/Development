@@ -1,8 +1,8 @@
-import { useState, useMemo, useEffect, type ReactNode } from 'react';
+import { useState, useMemo, useEffect, useCallback, type ReactNode } from 'react';
 import { useQueryStore } from '../store/query-store';
 
 function isWideTextColumn(name: string): boolean {
-  return /TEXT|DIGEST|QUERY|SQL|BODY|DESCRIPTION|JSON|URL|PATH/i.test(name);
+  return /TEXT|DIGEST|QUERY|SQL|BODY|DESCRIPTION|JSON|URL|PATH|CREATE|DDL|DEFINITION/i.test(name);
 }
 
 function explainCellRisk(columnKey: string, val: unknown): boolean {
@@ -70,6 +70,7 @@ export function ResultsGrid() {
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const lastColumns = useQueryStore((s) => s.lastColumns);
   const lastRows = useQueryStore((s) => s.lastRows);
@@ -107,6 +108,17 @@ export function ResultsGrid() {
       return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
     });
   }, [lastRows, lastColumns, sortCol, sortDir]);
+
+  const handleCopyTsv = useCallback(() => {
+    const headers = lastColumns.map((c) => c.name).join('\t');
+    const rows = lastRows.map((row) =>
+      row.map((cell) => (cell === null || cell === undefined ? '' : String(cell))).join('\t'),
+    );
+    void navigator.clipboard.writeText([headers, ...rows].join('\n')).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [lastColumns, lastRows]);
 
   if (lastError) {
     return (
@@ -229,16 +241,28 @@ export function ResultsGrid() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-3">
-      <div>
-        <SectionTitle>Results</SectionTitle>
-        <p className="text-sm text-par-navy font-semibold">
-          <span className="text-par-text/50 font-bold text-xs uppercase tracking-wider mr-2">Dataset</span>
-          {lastMeta?.rowCount ?? lastRows.length} rows
-          {lastMeta?.truncated && <span className="text-par-orange ml-2 text-xs font-bold">· limited</span>}
-          {lastMeta?.executionTimeMs != null && (
-            <span className="text-par-text/45 ml-2 text-xs font-semibold">· {lastMeta.executionTimeMs} ms</span>
-          )}
-        </p>
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex-1">
+          <SectionTitle>Results</SectionTitle>
+          <p className="text-sm text-par-navy font-semibold">
+            <span className="text-par-text/50 font-bold text-xs uppercase tracking-wider mr-2">Dataset</span>
+            {lastMeta?.rowCount ?? lastRows.length} rows
+            {lastMeta?.truncated && <span className="text-par-orange ml-2 text-xs font-bold">· limited</span>}
+            {lastMeta?.executionTimeMs != null && (
+              <span className="text-par-text/45 ml-2 text-xs font-semibold">· {lastMeta.executionTimeMs} ms</span>
+            )}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleCopyTsv}
+          className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-par-purple focus-visible:ring-offset-1 select-none
+            border-par-light-purple/60 text-par-navy/70 bg-white hover:bg-par-light-purple/30 hover:border-par-purple/40
+            data-[copied=true]:border-emerald-400/60 data-[copied=true]:text-emerald-700 data-[copied=true]:bg-emerald-50"
+          data-copied={copied}
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
       </div>
       <div className={tableShell}>
         <table className="results-data-table w-full text-xs border-separate border-spacing-0">

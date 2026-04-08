@@ -204,7 +204,7 @@ export default function App() {
                   <SqlEditor onRun={() => void run()} />
                 </div>
                 <div className="flex flex-1 flex-col min-h-0 overflow-hidden border-t border-par-light-purple/20 bg-[#faf9fd]/90 px-3 sm:px-4 py-3 sm:py-4">
-                  <div className="flex min-h-[min(240px,42vh)] flex-1 flex-col overflow-hidden">
+                  <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
                     <ResultsGrid />
                   </div>
                 </div>
