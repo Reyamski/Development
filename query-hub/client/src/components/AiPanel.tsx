@@ -6,8 +6,6 @@ import {
   aiExplainSql,
   aiOptimizeSql,
   aiAnalyzeContext,
-  kiroEnvHints,
-  kiroAwsSsoLogin,
 } from '../api/client';
 
 type AiMode = 'ask' | 'explain' | 'optimize' | 'explain_plan' | 'result_sample';
@@ -104,34 +102,8 @@ export function AiPanel() {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<AiResult[]>([]);
   const [askInput, setAskInput] = useState('');
-  const [ssoLogging, setSsoLogging] = useState(false);
-  const [bedrockAccountId, setBedrockAccountId] = useState<string | null>(null);
-  const [bedrockRegion, setBedrockRegion] = useState('us-east-1');
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const isTokenExpired = typeof error === 'string' && error.toLowerCase().includes('token is expired');
-
-  useEffect(() => {
-    kiroEnvHints().then((h) => {
-      if (h.bedrockAccountIdOverride) setBedrockAccountId(h.bedrockAccountIdOverride);
-      if (h.bedrockRegionDefault) setBedrockRegion(h.bedrockRegionDefault);
-    }).catch(() => {});
-  }, []);
-
-  async function handleSsoLogin() {
-    if (!bedrockAccountId) return;
-    setSsoLogging(true);
-    setError(null);
-    try {
-      await kiroAwsSsoLogin(bedrockAccountId, bedrockRegion);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'SSO login failed');
-    } finally {
-      setSsoLogging(false);
-    }
-  }
 
   const hasSql = editorSql.trim().length > 0;
   const hasExplain = Array.isArray(explainPlan) && explainPlan.length > 0;
@@ -276,16 +248,6 @@ export function AiPanel() {
         {error && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
             {error}
-            {isTokenExpired && bedrockAccountId && (
-              <button
-                type="button"
-                onClick={() => void handleSsoLogin()}
-                disabled={ssoLogging}
-                className={`mt-2 w-full px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-par-purple hover:bg-[#5a56c4] disabled:opacity-50 transition-colors ${focusRing}`}
-              >
-                {ssoLogging ? 'Opening browser for SSO login…' : 'Refresh AWS SSO login'}
-              </button>
-            )}
           </div>
         )}
         <div ref={bottomRef} />

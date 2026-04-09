@@ -3,81 +3,8 @@ import { getConnection, getActiveSession } from '../services/connection-manager.
 import { buildSchemaSummary } from '../services/schema-summary.js';
 import { guardSql, stripSqlComments } from '../services/sql-guard.js';
 import { runAiCompletion, aiErrorStatus } from '../services/ai-providers.js';
-import { listKiroSsoAccounts, startKiroAwsSsoLogin, hasValidCachedSsoToken } from '../services/kiro-aws-sso.js';
-import { startDeviceSsoLogin, getDeviceSsoLoginInfo } from '../services/aws-device-sso.js';
-import { findKiroCliBinary } from '../services/kiro-cli-runner.js';
 
 const router = Router();
-
-/** Non-secret hints so Kiro UI can match SSO to `QUERY_HUB_BEDROCK_ACCOUNT_ID` when set on the server. */
-router.get('/kiro-env-hints', async (_req: Request, res: Response) => {
-  const useKiroCli = process.env.QUERY_HUB_USE_KIRO_CLI?.trim().toLowerCase() === 'true';
-  const modelMissing = !process.env.QUERY_HUB_BEDROCK_MODEL_ID?.trim();
-  const fallbackOff = process.env.QUERY_HUB_DISABLE_KIRO_CLI_FALLBACK?.trim().toLowerCase() === 'true';
-  const autoKiroCliFallback = Boolean(modelMissing && !fallbackOff && !useKiroCli);
-  const kiroCliResolvedPath = await findKiroCliBinary();
-  res.json({
-    bedrockAccountIdOverride: process.env.QUERY_HUB_BEDROCK_ACCOUNT_ID?.trim() || null,
-    bedrockRegionDefault: process.env.QUERY_HUB_BEDROCK_REGION?.trim() || null,
-    useKiroCli,
-    autoKiroCliFallback,
-    kiroCliFound: Boolean(kiroCliResolvedPath),
-    kiroCliResolvedPath,
-  });
-});
-
-/** Same as EDT Hub `GET /api/aws/sso-status` — valid cached SSO access token. */
-router.get('/sso-status', async (_req: Request, res: Response) => {
-  try {
-    const loggedIn = await hasValidCachedSsoToken();
-    res.json({ loggedIn });
-  } catch {
-    res.json({ loggedIn: false });
-  }
-});
-
-/**
- * Same as EDT Hub `POST /api/aws/sso-login` — device flow; browser opens on API host.
- * Profile: `QUERY_HUB_SSO_DEVICE_PROFILE` or `default`.
- */
-router.post('/sso-login', (_req: Request, res: Response) => {
-  try {
-    const { started } = startDeviceSsoLogin();
-    res.json({ started });
-  } catch (e) {
-    res.status(500).json({ error: e instanceof Error ? e.message : 'SSO login failed to start' });
-  }
-});
-
-/** Same as EDT Hub `GET /api/aws/sso-login-info` — device URL + code while CLI runs. */
-router.get('/sso-login-info', (_req: Request, res: Response) => {
-  res.json(getDeviceSsoLoginInfo());
-});
-
-/** Same pattern as RDS Replica Lag: list SSO accounts from cached session. */
-router.get('/aws-accounts', async (_req: Request, res: Response) => {
-  try {
-    const accounts = await listKiroSsoAccounts();
-    res.json({ accounts });
-  } catch (e) {
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to list AWS accounts' });
-  }
-});
-
-/** Same pattern as RDS Replica Lag: `aws sso login --profile rds-dba-<accountId>` (opens browser on API host). */
-router.post('/aws-sso-login', async (req: Request, res: Response) => {
-  try {
-    const { accountId, region } = req.body as { accountId?: string; region?: string };
-    if (!accountId?.trim() || !region?.trim()) {
-      res.status(400).json({ error: 'accountId and region are required' });
-      return;
-    }
-    const result = await startKiroAwsSsoLogin(accountId.trim(), region.trim());
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({ error: e instanceof Error ? e.message : 'AWS SSO login failed' });
-  }
-});
 
 const SAFETY_RULES = `Rules:
 - Prefer MySQL 8 compatible syntax.
@@ -87,9 +14,8 @@ const SAFETY_RULES = `Rules:
 
 router.post('/ask', async (req: Request, res: Response) => {
   try {
-    const { message, database, includeSchema } = req.body as {
+    const { message, includeSchema } = req.body as {
       message?: string;
-      database?: string;
       includeSchema?: boolean;
     };
     if (!message?.trim()) {
@@ -112,7 +38,7 @@ router.post('/ask', async (req: Request, res: Response) => {
       schemaBlock ? `Schema context:\n${schemaBlock}\n` : ''
     }`;
 
-    const { text, model } = await runAiCompletion(req, system, message.trim(), 4096);
+    const { text, model } = await runAiCompletion(system, message.trim(), 4096);
     const sqlMatch = text.match(/```sql\n([\s\S]*?)```/i);
     const sqlSuggestion = sqlMatch ? sqlMatch[1].trim() : undefined;
 
@@ -129,7 +55,7 @@ router.post('/ask', async (req: Request, res: Response) => {
 
 router.post('/explain', async (req: Request, res: Response) => {
   try {
-    const { sql, database } = req.body as { sql?: string; database?: string };
+    const { sql } = req.body as { sql?: string };
     if (!sql?.trim()) {
       res.status(400).json({ error: 'sql is required' });
       return;
@@ -146,7 +72,7 @@ router.post('/explain', async (req: Request, res: Response) => {
     }
     const userSql = stripSqlComments(sql).trim();
     const system = `Explain SQL for MySQL DBAs. Be concise. ${SAFETY_RULES}\n\n${schemaBlock ? `Schema:\n${schemaBlock}` : ''}`;
-    const { text, model } = await runAiCompletion(req, system, `Explain this SQL in plain English:\n\n${userSql}`, 2048);
+    const { text, model } = await runAiCompletion(system, `Explain this SQL in plain English:\n\n${userSql}`, 2048);
     res.json({ explanation: text, model });
   } catch (e) {
     const status = aiErrorStatus(e);
@@ -156,7 +82,7 @@ router.post('/explain', async (req: Request, res: Response) => {
 
 router.post('/optimize', async (req: Request, res: Response) => {
   try {
-    const { sql, database } = req.body as { sql?: string; database?: string };
+    const { sql } = req.body as { sql?: string };
     if (!sql?.trim()) {
       res.status(400).json({ error: 'sql is required' });
       return;
@@ -173,7 +99,7 @@ router.post('/optimize', async (req: Request, res: Response) => {
     }
     const userSql = stripSqlComments(sql).trim();
     const system = `Suggest MySQL query optimizations. Return improved SQL in a \`\`\`sql block when applicable. ${SAFETY_RULES}\n\n${schemaBlock ? `Schema:\n${schemaBlock}` : ''}`;
-    const { text, model } = await runAiCompletion(req, system, `Analyze and optimize:\n\n${userSql}`, 4096);
+    const { text, model } = await runAiCompletion(system, `Analyze and optimize:\n\n${userSql}`, 4096);
     const sqlMatch = text.match(/```sql\n([\s\S]*?)```/i);
     const optimizedSql = sqlMatch ? sqlMatch[1].trim() : undefined;
     res.json({ message: text, optimizedSql, model });
@@ -185,7 +111,7 @@ router.post('/optimize', async (req: Request, res: Response) => {
 
 router.post('/generate', async (req: Request, res: Response) => {
   try {
-    const { prompt, database } = req.body as { prompt?: string; database?: string };
+    const { prompt } = req.body as { prompt?: string };
     if (!prompt?.trim()) {
       res.status(400).json({ error: 'prompt is required' });
       return;
@@ -201,7 +127,7 @@ router.post('/generate', async (req: Request, res: Response) => {
       }
     }
     const system = `Generate MySQL SELECT queries from natural language. Put final SQL only in a \`\`\`sql code block. ${SAFETY_RULES}\n\n${schemaBlock ? `Schema:\n${schemaBlock}` : 'No schema loaded — infer carefully.'}`;
-    const { text, model } = await runAiCompletion(req, system, prompt.trim(), 4096);
+    const { text, model } = await runAiCompletion(system, prompt.trim(), 4096);
     const sqlMatch = text.match(/```sql\n([\s\S]*?)```/i);
     const sql = sqlMatch ? sqlMatch[1].trim() : undefined;
     res.json({ message: text, sql, model });
@@ -216,7 +142,6 @@ router.post('/analyze', async (req: Request, res: Response) => {
     const body = req.body as {
       mode?: string;
       sql?: string;
-      database?: string;
       explainPlan?: Record<string, unknown>[];
       columns?: string[];
       rows?: unknown[][];
@@ -259,7 +184,7 @@ router.post('/analyze', async (req: Request, res: Response) => {
     }
 
     const system = `You are an expert MySQL DBA helping interpret EXPLAIN plans and query results inside Query Hub.\n${SAFETY_RULES}\n\n${schemaBlock ? `Schema context:\n${schemaBlock}\n` : ''}`;
-    const { text, model } = await runAiCompletion(req, system, userContent, 3072);
+    const { text, model } = await runAiCompletion(system, userContent, 3072);
     res.json({ explanation: text, model });
   } catch (e) {
     const status = aiErrorStatus(e);

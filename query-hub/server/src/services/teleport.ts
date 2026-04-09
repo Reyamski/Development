@@ -206,10 +206,13 @@ export async function getLoginStatus(tsh: string, cluster?: string): Promise<Tel
  * Use stdio `ignore` (not pipes): unread pipes can fill and block `tsh login` before SSO finishes.
  */
 export function loginToCluster(tsh: string, cluster: string): ChildProcess {
-  return spawn(tsh, ['login', cluster], {
+  const proc = spawn(tsh, ['login', cluster], {
     stdio: 'ignore',
+    detached: true,
     windowsHide: false,
-  });
+  })
+  proc.unref()
+  return proc
 }
 
 /**

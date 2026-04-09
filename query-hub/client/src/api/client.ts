@@ -1,5 +1,4 @@
 import type { TeleportInstance, TeleportStatus, ConnectionResult, QueryExecuteResult } from './types';
-import { buildAiHeaders } from '../store/ai-settings-store';
 
 async function post<T>(url: string, body: Record<string, unknown>): Promise<T> {
   const res = await fetch(url, {
@@ -23,22 +22,6 @@ async function get<T>(url: string): Promise<T> {
   return res.json();
 }
 
-async function postAi<T>(url: string, body: Record<string, unknown>): Promise<T> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...buildAiHeaders(),
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error((data as { error?: string }).error || `Request failed: ${res.status}`);
-  }
-  return res.json();
-}
-
 export function authEmailStatus(): Promise<{ enabled: boolean; hasJwtSecret: boolean }> {
   return get('/api/auth/email/status');
 }
@@ -49,51 +32,6 @@ export function authEmailRequestCode(email: string): Promise<{ ok: boolean; mess
 
 export function authEmailVerify(email: string, code: string): Promise<{ token: string; email: string }> {
   return post('/api/auth/email/verify', { email, code });
-}
-
-export interface KiroAwsAccountRow {
-  accountId: string;
-  accountName: string;
-  emailAddress: string;
-}
-
-/** SSO accounts from cached session — same idea as main EDT Hub / Replica Lag tooling. */
-export function kiroListAwsAccounts(): Promise<{ accounts: KiroAwsAccountRow[] }> {
-  return get('/api/ai/aws-accounts');
-}
-
-/** Server-only Bedrock account/region overrides (no secrets). */
-export function kiroEnvHints(): Promise<{
-  bedrockAccountIdOverride: string | null;
-  bedrockRegionDefault: string | null;
-  useKiroCli: boolean;
-  /** Server tries Kiro CLI when Bedrock model ID is unset */
-  autoKiroCliFallback: boolean;
-  /** API host resolved `kiro-cli` (or `QUERY_HUB_KIRO_CLI_PATH`); null if not found */
-  kiroCliFound: boolean;
-  kiroCliResolvedPath: string | null;
-}> {
-  return get('/api/ai/kiro-env-hints');
-}
-
-/** Same as EDT Hub `GET /api/aws/sso-status`. */
-export function kiroSsoStatus(): Promise<{ loggedIn: boolean }> {
-  return get('/api/ai/sso-status');
-}
-
-/** Same as EDT Hub `POST /api/aws/sso-login` — device flow on the API host (`--profile default` or QUERY_HUB_SSO_DEVICE_PROFILE). */
-export function kiroTriggerDeviceSsoLogin(): Promise<{ started: boolean }> {
-  return post('/api/ai/sso-login', {});
-}
-
-/** Same as EDT Hub `GET /api/aws/sso-login-info` — device URL + code while CLI runs. */
-export function kiroDeviceSsoLoginInfo(): Promise<{ code: string | null; url: string | null }> {
-  return get('/api/ai/sso-login-info');
-}
-
-/** Triggers `aws sso login --profile rds-dba-<accountId>` on the API host (opens browser). */
-export function kiroAwsSsoLogin(accountId: string, region: string): Promise<{ started: boolean; profileName: string }> {
-  return post('/api/ai/aws-sso-login', { accountId: accountId.trim(), region: region.trim() });
 }
 
 export function teleportStatus(): Promise<{ available: boolean; tshPath: string | null }> {
@@ -219,28 +157,28 @@ export function aiAsk(body: {
   database?: string;
   includeSchema?: boolean;
 }): Promise<{ message: string; sqlSuggestion?: string; model?: string }> {
-  return postAi('/api/ai/ask', body as Record<string, unknown>);
+  return post('/api/ai/ask', body as Record<string, unknown>);
 }
 
 export function aiExplainSql(body: {
   sql: string;
   database?: string;
 }): Promise<{ explanation: string; model?: string }> {
-  return postAi('/api/ai/explain', body as Record<string, unknown>);
+  return post('/api/ai/explain', body as Record<string, unknown>);
 }
 
 export function aiOptimizeSql(body: {
   sql: string;
   database?: string;
 }): Promise<{ message: string; optimizedSql?: string; model?: string }> {
-  return postAi('/api/ai/optimize', body as Record<string, unknown>);
+  return post('/api/ai/optimize', body as Record<string, unknown>);
 }
 
 export function aiGenerateSql(body: {
   prompt: string;
   database?: string;
 }): Promise<{ message: string; sql?: string; model?: string }> {
-  return postAi('/api/ai/generate', body as Record<string, unknown>);
+  return post('/api/ai/generate', body as Record<string, unknown>);
 }
 
 export function aiAnalyzeContext(body: {
@@ -251,5 +189,5 @@ export function aiAnalyzeContext(body: {
   columns?: string[];
   rows?: unknown[][];
 }): Promise<{ explanation: string; model?: string }> {
-  return postAi('/api/ai/analyze', body as Record<string, unknown>);
+  return post('/api/ai/analyze', body as Record<string, unknown>);
 }
