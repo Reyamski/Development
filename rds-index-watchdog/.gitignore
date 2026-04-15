@@ -1,0 +1,4 @@
+# Server-local data (audit log, saved investigations)
+server/data/
+.env
+.env.local
