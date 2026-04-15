@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: 'Manrope', sans-serif;
+  background: #ffffff;
+  color: #212438;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(104 100 209 / 0.35) rgb(225 224 247 / 0.15);
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: rgb(225 224 247 / 0.15);
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(104 100 209 / 0.35);
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(104 100 209 / 0.55);
+}
