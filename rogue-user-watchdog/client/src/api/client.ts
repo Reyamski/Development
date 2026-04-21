@@ -120,7 +120,7 @@ export async function downloadReport(auditResult: AuditResult): Promise<void> {
     throw new Error((data as { error?: string }).error || `Report failed: ${res.status}`)
   }
   const blob = await res.blob()
-  const filename = `rogue-db-audit-${auditResult.instance}-${new Date(auditResult.auditedAt).toISOString().slice(0, 10)}.md`
+  const filename = `rogue-db-audit-${auditResult.instance}-${new Date(auditResult.auditedAt).toISOString().slice(0, 10)}.xlsx`
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

@@ -1,10 +1,10 @@
 import { Router, Request, Response } from 'express'
-import { generateMarkdownReport } from '../services/report.js'
+import { generateExcelReport } from '../services/excel-report.js'
 import type { AuditResult } from '../types.js'
 
 const router = Router()
 
-router.post('/', (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const auditResult: AuditResult = req.body
 
@@ -13,12 +13,12 @@ router.post('/', (req: Request, res: Response) => {
       return
     }
 
-    const markdown = generateMarkdownReport(auditResult)
-    const filename = `rogue-db-audit-${auditResult.instance}-${new Date(auditResult.auditedAt).toISOString().slice(0, 10)}.md`
+    const excelBuffer = await generateExcelReport(auditResult)
+    const filename = `rogue-db-audit-${auditResult.instance}-${new Date(auditResult.auditedAt).toISOString().slice(0, 10)}.xlsx`
 
-    res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
-    res.send(markdown)
+    res.send(excelBuffer)
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Server error' })
   }
