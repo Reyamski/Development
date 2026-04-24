@@ -128,19 +128,30 @@ export async function findTsh(override?: string): Promise<string> {
   throw new Error('Could not find tsh binary. Install Teleport or set TSH_PATH.');
 }
 
+const DEFAULT_CLUSTERS = ['par-prod.teleport.sh', 'par-nonprod.teleport.sh'];
+
 /**
- * Return cluster names from ~/.tsh/*.yaml profile files.
+ * Return cluster names from ~/.tsh/*.yaml profile files, merged with optional TELEPORT_CLUSTERS env.
+ * Falls back to DEFAULT_CLUSTERS when neither source yields anything (first-run UX).
  */
 export async function getClusters(): Promise<string[]> {
+  const fromEnv =
+    process.env.TELEPORT_CLUSTERS?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean) ?? [];
+
+  let fromFs: string[] = [];
   try {
     const files = await fs.readdir(TSH_DIR);
-    return files
+    fromFs = files
       .filter(f => f.endsWith('.yaml'))
-      .map(f => f.replace(/\.yaml$/, ''))
-      .sort();
+      .map(f => f.replace(/\.yaml$/, ''));
   } catch {
-    return [];
+    fromFs = [];
   }
+
+  const merged = [...new Set([...fromFs, ...fromEnv])];
+  return (merged.length > 0 ? merged : DEFAULT_CLUSTERS).sort();
 }
 
 /**
