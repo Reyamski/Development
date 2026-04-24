@@ -82,16 +82,26 @@ export async function findTsh(override?: string): Promise<string> {
   throw new Error('Could not find tsh binary. Install Teleport or set tsh_path.')
 }
 
+const DEFAULT_CLUSTERS = ['par-prod.teleport.sh', 'par-nonprod.teleport.sh']
+
 export async function getClusters(): Promise<string[]> {
+  const fromEnv =
+    process.env.TELEPORT_CLUSTERS?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean) ?? []
+
+  let fromFs: string[] = []
   try {
     const files = await fs.readdir(TSH_DIR)
-    return files
+    fromFs = files
       .filter(f => f.endsWith('.yaml'))
       .map(f => f.replace(/\.yaml$/, ''))
-      .sort()
   } catch {
-    return []
+    fromFs = []
   }
+
+  const merged = [...new Set([...fromFs, ...fromEnv])]
+  return (merged.length > 0 ? merged : DEFAULT_CLUSTERS).sort()
 }
 
 export async function getLoginStatus(tsh: string, cluster?: string): Promise<TeleportStatus> {
