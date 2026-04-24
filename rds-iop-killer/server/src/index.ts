@@ -1,0 +1,39 @@
+import { config as loadEnv } from 'dotenv';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import express from 'express';
+import cors from 'cors';
+import teleportRouter from './routes/teleport.js';
+import iopsRouter from './routes/iops.js';
+import awsRouter from './routes/aws.js';
+import { cleanupAll } from './services/teleport.js';
+import { closeSession } from './services/connection-manager.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+loadEnv({ path: join(__dirname, '../../.env') });
+
+const app = express();
+const PORT = Number(process.env.PORT) || 3001;
+
+app.use(cors());
+app.use(express.json());
+
+app.use('/api/teleport', teleportRouter);
+app.use('/api/iops', iopsRouter);
+app.use('/api/aws', awsRouter);
+
+app.listen(PORT, () => {
+  console.log(`RDS IOP Killer server running on http://localhost:${PORT}`);
+});
+
+// Cleanup tunnels on process termination
+async function shutdown(signal: string) {
+  console.log(`\n[${signal}] Cleaning up...`);
+  await closeSession();
+  await cleanupAll();
+  process.exit(0);
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
