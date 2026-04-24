@@ -170,7 +170,8 @@ export function ResultsPanel({
     setExportLinks(null);
 
     try {
-      const links = await exportToConfluence(results.database, instance, results);
+      const accountName = instance.split('-rds-')[0] || instance.split('-')[0];
+      const links = await exportToConfluence(results.database, instance, results, accountName);
       setExportLinks(links);
     } catch (error) {
       setExportError(error instanceof Error ? error.message : 'Export failed');

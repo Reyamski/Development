@@ -75,9 +75,10 @@ export const runAnalysis = (database: string, instance: string) =>
 export const confluenceStatus = () =>
   getJson<{ configured: boolean }>('/confluence/status');
 
-export const exportToConfluence = (database: string, instance: string, results: object) =>
+export const exportToConfluence = (database: string, instance: string, results: object, accountName?: string) =>
   postJson<{ pageUrl: string; summaryPageUrl: string }>('/confluence/export', {
     database,
     instance,
     results,
+    accountName,
   });

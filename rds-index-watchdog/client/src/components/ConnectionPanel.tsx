@@ -10,6 +10,7 @@ export function ConnectionPanel() {
     selectedCluster, setSelectedCluster,
     selectedInstance, setSelectedInstance,
     selectedDatabase, setSelectedDatabase,
+    selectedDatabases, setSelectedDatabases,
     connectionResult, setConnectionResult,
   } = useAppStore();
 
@@ -40,6 +41,7 @@ export function ConnectionPanel() {
     setDatabases([]);
     setSelectedInstance('');
     setSelectedDatabase('');
+    setSelectedDatabases([]);
     setConnectionResult(null);
     if (!cluster) return;
     try {
@@ -91,6 +93,7 @@ export function ConnectionPanel() {
     setSelectedInstance(instance);
     setDatabases([]);
     setSelectedDatabase('');
+    setSelectedDatabases([]);
     setConnectionResult(null);
     if (!instance) return;
     setLoading('databases');
@@ -103,12 +106,14 @@ export function ConnectionPanel() {
   }
 
   async function handleConnect() {
-    if (!selectedCluster || !selectedInstance || !selectedDatabase) return;
+    if (!selectedCluster || !selectedInstance || selectedDatabases.length === 0) return;
     setLoading('connect');
     setError('');
     try {
-      const result = await teleportConnect(selectedCluster, selectedInstance, selectedDatabase);
-      setConnectionResult({ connected: true, instance: selectedInstance, database: selectedDatabase, dbUser: result.dbUser });
+      const firstDb = selectedDatabases[0];
+      const result = await teleportConnect(selectedCluster, selectedInstance, firstDb);
+      setConnectionResult({ connected: true, instance: selectedInstance, database: firstDb, dbUser: result.dbUser });
+      setSelectedDatabase(firstDb);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Connection failed');
     } finally { setLoading(''); }
@@ -118,6 +123,7 @@ export function ConnectionPanel() {
     try { await teleportDisconnect(); } catch { /* ignore */ }
     setConnectionResult(null);
     setSelectedDatabase('');
+    setSelectedDatabases([]);
   }
 
   const connected = !!connectionResult?.connected;
@@ -168,31 +174,44 @@ export function ConnectionPanel() {
         </div>
       )}
 
-      {/* Database */}
+      {/* Database - Multi-select */}
       {selectedInstance && databases.length > 0 && (
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Database</label>
-          <select
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-            value={selectedDatabase}
-            onChange={(e) => setSelectedDatabase(e.target.value)}
-            disabled={connected}
-          >
-            <option value="">— select database —</option>
-            {databases.map((d) => <option key={d} value={d}>{d}</option>)}
-          </select>
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">
+            Database{selectedDatabases.length > 0 && ` (${selectedDatabases.length} selected)`}
+          </label>
+          <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2">
+            {databases.map((db) => (
+              <label key={db} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedDatabases.includes(db)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedDatabases([...selectedDatabases, db]);
+                    } else {
+                      setSelectedDatabases(selectedDatabases.filter(d => d !== db));
+                    }
+                  }}
+                  disabled={connected}
+                  className="w-4 h-4 text-violet-600 rounded focus:ring-2 focus:ring-violet-400"
+                />
+                <span className="text-sm text-slate-700">{db}</span>
+              </label>
+            ))}
+          </div>
           {loading === 'databases' && <p className="text-[11px] text-slate-400 mt-1">Loading databases…</p>}
         </div>
       )}
 
       {/* Connect / Disconnect */}
-      {selectedDatabase && !connected && (
+      {selectedDatabases.length > 0 && !connected && (
         <button
           onClick={handleConnect}
           disabled={loading === 'connect'}
           className="w-full py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold transition-colors disabled:opacity-60"
         >
-          {loading === 'connect' ? 'Connecting…' : 'Connect'}
+          {loading === 'connect' ? 'Connecting…' : `Connect to ${selectedDatabases.length} database${selectedDatabases.length !== 1 ? 's' : ''}`}
         </button>
       )}
 

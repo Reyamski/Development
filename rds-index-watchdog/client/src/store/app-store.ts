@@ -15,6 +15,8 @@ interface AppState {
   setSelectedInstance: (i: string) => void;
   selectedDatabase: string;
   setSelectedDatabase: (d: string) => void;
+  selectedDatabases: string[];
+  setSelectedDatabases: (d: string[]) => void;
   connectionResult: ConnectionResult | null;
   setConnectionResult: (r: ConnectionResult | null) => void;
   // Analysis
@@ -95,6 +97,8 @@ export const useAppStore = create<AppState>((set) => ({
   setSelectedInstance: (i) => set({ selectedInstance: i }),
   selectedDatabase: '',
   setSelectedDatabase: (d) => set({ selectedDatabase: d }),
+  selectedDatabases: [],
+  setSelectedDatabases: (d) => set({ selectedDatabases: d }),
   connectionResult: null,
   setConnectionResult: (r) => set({ connectionResult: r }),
   isAnalyzing: false,

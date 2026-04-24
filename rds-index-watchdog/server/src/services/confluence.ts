@@ -230,10 +230,10 @@ async function createPage(spaceKey: string, parentId: string, title: string, bod
 function buildDocPageContent(): string {
   return `
 <h2>Overview</h2>
-<p>RDS Index Reviewer is a <strong>read-only</strong> MySQL index analysis tool for DBAs managing multiple AWS RDS instances via Teleport. It surfaces index health findings with human-readable explanations - no auto-apply, no schema changes.</p>
+<p>Index Watchdog is a <strong>read-only</strong> MySQL index analysis tool for DBAs managing multiple AWS RDS instances via Teleport. It surfaces index health findings with human-readable explanations - no auto-apply, no schema changes.</p>
 
 <h2>Confluence Structure</h2>
-<p>This page is the landing page for the RDS Index Reviewer tool under the shared POCs section. Each export from the UI creates a dated child page beneath this page so reports stay grouped together.</p>
+<p>This page is the landing page for the Index Watchdog tool under the shared POCs section. Each export from the UI creates or appends to a report page beneath this page so all runs stay grouped together.</p>
 
 <h2>Analysis Categories</h2>
 <table data-layout="default">
@@ -289,12 +289,12 @@ function buildDocPageContent(): string {
   </ac:rich-text-body>
 </ac:structured-macro>
 
-<h2>Datestamped Reports</h2>
-<p>Each "Export to Confluence" creates a child page below this one named <code>RDS Index Report_YYYYMMDD</code>. Run weekly to track index health trends over time.</p>
+<h2>Reports</h2>
+<p>Each "Export to Confluence" appends findings to a report page below this one. Multiple databases can be analyzed and exported in a single run.</p>
 `;
 }
 
-function buildRunPageContent(database: string, instance: string, results: any): string {
+function buildRunPageContent(database: string, instance: string, results: any, accountName?: string): string {
   const total =
     results.missingIndexes.length +
     results.unusedIndexes.length +
@@ -331,10 +331,12 @@ ${content}
 `;
   }
 
+  const accountLabel = accountName ? ` - ${accountName}` : '';
   return `
-<h2>Summary</h2>
+<h2>Summary${accountLabel}</h2>
 <table data-layout="default">
   <tbody>
+    ${accountName ? `<tr><th>Account</th><td><strong>${accountName}</strong></td></tr>` : ''}
     <tr><th>Database</th><td><code>${database}</code></td></tr>
     <tr><th>Instance</th><td><code>${instance}</code></td></tr>
     <tr><th>Analyzed At</th><td>${new Date(results.analyzedAt).toLocaleString()}</td></tr>
@@ -432,7 +434,7 @@ export async function exportToConfluence(
   }
 
   const { spaceKey, parentPageId } = getConfig();
-  const summaryPageTitle = 'RDS Index Reviewer';
+  const summaryPageTitle = 'Index Watchdog';
 
   let summaryPage;
   try {
@@ -470,7 +472,8 @@ export async function exportToConfluence(
   const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
     now.getDate()
   ).padStart(2, '0')}`;
-  const runPageTitle = `RDS Index Report_${dateStr}`;
+  const accountPrefix = accountName ? `${accountName} - ` : '';
+  const runPageTitle = `${accountPrefix}RDS Index Report_${dateStr}`;
 
   let existing;
   try {
@@ -480,23 +483,51 @@ export async function exportToConfluence(
     throw new Error(`Failed while checking for an existing report page "${runPageTitle}": ${message}`);
   }
 
-  const finalTitle = existing
-    ? `RDS Index Report_${dateStr}_${String(now.getHours()).padStart(2, '0')}${String(
-        now.getMinutes()
-      ).padStart(2, '0')}`
-    : runPageTitle;
-
   let runPage;
-  try {
-    runPage = await createPage(
-      spaceKey,
-      summaryPageId,
-      finalTitle,
-      buildRunPageContent(database, instance, results)
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed while creating the report page "${finalTitle}": ${message}`);
+  if (existing) {
+    try {
+      const currentContent = await confluenceRequest(
+        'GET',
+        `/wiki/rest/api/content/${existing.id}?expand=body.storage`
+      );
+      const existingBody = currentContent.body?.storage?.value || '';
+      const separator = '<hr/><hr/>';
+      const newContent = buildRunPageContent(database, instance, results, accountName);
+      const updatedBody = existingBody + separator + newContent;
+      
+      const updated = await confluenceRequest('PUT', `/wiki/rest/api/content/${existing.id}`, {
+        version: { number: existing.version + 1 },
+        title: runPageTitle,
+        type: 'page',
+        body: {
+          storage: {
+            value: updatedBody,
+            representation: 'storage',
+          },
+        },
+      });
+      
+      const { url } = getConfig();
+      runPage = {
+        id: updated.id,
+        url: `${url}/wiki${updated._links?.webui || `/spaces/${spaceKey}/pages/${updated.id}`}`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed while appending to existing report page "${runPageTitle}": ${message}`);
+    }
+  } else {
+    try {
+      runPage = await createPage(
+        spaceKey,
+        summaryPageId,
+        runPageTitle,
+        buildRunPageContent(database, instance, results, accountName)
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed while creating the report page "${runPageTitle}": ${message}`);
+    }
   }
 
   return { pageUrl: runPage.url, summaryPageUrl };

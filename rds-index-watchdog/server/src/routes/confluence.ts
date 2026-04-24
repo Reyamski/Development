@@ -8,10 +8,11 @@ router.get('/status', (_req: Request, res: Response) => {
 });
 
 router.post('/export', async (req: Request, res: Response) => {
-  const { database, instance, results } = req.body as {
+  const { database, instance, results, accountName } = req.body as {
     database?: string;
     instance?: string;
     results?: any;
+    accountName?: string;
   };
 
   if (!database || !instance || !results) {
@@ -19,7 +20,7 @@ router.post('/export', async (req: Request, res: Response) => {
   }
 
   try {
-    const { pageUrl, summaryPageUrl } = await exportToConfluence(database, instance, results);
+    const { pageUrl, summaryPageUrl } = await exportToConfluence(database, instance, results, accountName);
     res.json({ pageUrl, summaryPageUrl });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Export failed';

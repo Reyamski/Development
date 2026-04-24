@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5179,
     proxy: {
       '/api': {
-        target: 'http://localhost:3013',
+        target: 'http://localhost:3005',
         changeOrigin: true,
         configure(proxy) {
           proxy.on('error', (_err, _req, res) => {
@@ -16,7 +16,7 @@ export default defineConfig({
               r.writeHead(502, { 'Content-Type': 'application/json' });
               r.end(
                 JSON.stringify({
-                  error: 'Backend unreachable (port 3013). Run: npm run dev from rds-index-watchdog root.',
+                  error: 'Backend unreachable (port 3005). Run: npm run dev from rds-index-watchdog root.',
                 })
               );
             }
