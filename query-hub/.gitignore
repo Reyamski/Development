@@ -1,0 +1,18 @@
+.vite/
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Secrets / env files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+
+# Server-local data
+server/data/

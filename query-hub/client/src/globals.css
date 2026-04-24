@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: 'Manrope', sans-serif;
+  background: #ffffff;
+  color: #212438;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(104, 100, 209, 0.2);
+  color: #212438;
+}
+
+input[type='checkbox'] {
+  accent-color: #6864d1;
+}
+
+.always-show-scrollbar::-webkit-scrollbar {
+  height: 10px;
+}
+.always-show-scrollbar::-webkit-scrollbar-track {
+  background: rgba(225, 224, 247, 0.2);
+  border-radius: 5px;
+}
+.always-show-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(104, 100, 209, 0.4);
+  border-radius: 5px;
+}
+.always-show-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(104, 100, 209, 0.7);
+}
+.always-show-scrollbar {
+  scrollbar-width: thin;
+}
+
+/* Reduce sticky-header “ghost” bleed on some GPUs */
+.results-data-table thead th {
+  background-clip: padding-box;
+  box-shadow: inset 0 -1px 0 rgba(104, 100, 209, 0.15);
+}
