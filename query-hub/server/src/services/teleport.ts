@@ -215,9 +215,14 @@ export async function getLoginStatus(tsh: string, cluster?: string): Promise<Tel
 /**
  * Start SSO login for a cluster. Opens browser on the API host. Returns the child process.
  * Use stdio `ignore` (not pipes): unread pipes can fill and block `tsh login` before SSO finishes.
+ *
+ * Use `--proxy=` so tsh treats the cluster string as a proxy host. Without it, when you're
+ * already logged in to a different root cluster, tsh interprets the arg as a *remote* (trusted)
+ * cluster within the active session and fails with "remote cluster not found".
  */
 export function loginToCluster(tsh: string, cluster: string): ChildProcess {
-  const proc = spawn(tsh, ['login', cluster], {
+  const proxyArg = cluster.includes(':') ? cluster : `${cluster}:443`;
+  const proc = spawn(tsh, ['login', `--proxy=${proxyArg}`], {
     stdio: 'ignore',
     detached: true,
     windowsHide: false,

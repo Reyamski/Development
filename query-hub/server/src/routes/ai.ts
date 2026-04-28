@@ -9,8 +9,13 @@ const router = Router();
 const SAFETY_RULES = `Rules:
 - Prefer MySQL 8 compatible syntax.
 - Always add LIMIT to generated SELECT unless the user explicitly forbids it.
-- Never suggest DROP, TRUNCATE, DELETE without WHERE, GRANT, or other destructive/privilege SQL.
-- If unsure, say you are unsure instead of inventing tables/columns.`;
+- ONLY suggest read-only operations: SELECT, EXPLAIN, SHOW, DESCRIBE. Never suggest INSERT, UPDATE, DELETE, REPLACE.
+- NEVER suggest DDL (CREATE, ALTER, DROP, TRUNCATE, RENAME) — including ADD INDEX, DROP INDEX, ALTER TABLE.
+- NEVER suggest OPTIMIZE TABLE, ANALYZE TABLE, REPAIR TABLE, FLUSH, LOCK TABLES — these block the table.
+- NEVER suggest GRANT, REVOKE, or any privilege/user management SQL.
+- If a question requires a write operation to answer, say so plainly and stop — do not generate the write SQL.
+- If unsure, say you are unsure instead of inventing tables/columns.
+- When asked to "improve performance", explain trade-offs in plain English only. Do not output index/schema-change SQL.`;
 
 router.post('/ask', async (req: Request, res: Response) => {
   try {
@@ -34,9 +39,15 @@ router.post('/ask', async (req: Request, res: Response) => {
       }
     }
 
-    const system = `You are an expert MySQL DBA assistant for Query Hub.\n${SAFETY_RULES}\n\n${
-      schemaBlock ? `Schema context:\n${schemaBlock}\n` : ''
-    }`;
+    const system = `You are an expert MySQL DBA assistant for Query Hub.
+${SAFETY_RULES}
+
+Response format:
+- Answer in plain English first (1–3 short paragraphs).
+- If the question asks for SQL, ALWAYS include a complete \`\`\`sql block with a runnable query — never end with a colon or "here's the query:" without the actual SQL.
+- If you cannot answer without a write operation, explain why and stop — do not output partial SQL.
+
+${schemaBlock ? `Schema context:\n${schemaBlock}\n` : ''}`;
 
     const { text, model } = await runAiCompletion(system, message.trim(), 4096);
     const sqlMatch = text.match(/```sql\n([\s\S]*?)```/i);
@@ -71,38 +82,9 @@ router.post('/explain', async (req: Request, res: Response) => {
       }
     }
     const userSql = stripSqlComments(sql).trim();
-    const system = `Explain SQL for MySQL DBAs. Be concise. ${SAFETY_RULES}\n\n${schemaBlock ? `Schema:\n${schemaBlock}` : ''}`;
-    const { text, model } = await runAiCompletion(system, `Explain this SQL in plain English:\n\n${userSql}`, 2048);
+    const system = `Explain SQL for MySQL DBAs. Be thorough but not bloated — finish every section you start. ${SAFETY_RULES}\n\n${schemaBlock ? `Schema:\n${schemaBlock}` : ''}`;
+    const { text, model } = await runAiCompletion(system, `Explain this SQL in plain English:\n\n${userSql}`, 4096);
     res.json({ explanation: text, model });
-  } catch (e) {
-    const status = aiErrorStatus(e);
-    res.status(status).json({ error: e instanceof Error ? e.message : 'AI request failed' });
-  }
-});
-
-router.post('/optimize', async (req: Request, res: Response) => {
-  try {
-    const { sql } = req.body as { sql?: string };
-    if (!sql?.trim()) {
-      res.status(400).json({ error: 'sql is required' });
-      return;
-    }
-    let schemaBlock = '';
-    const safeDb = getActiveSession()?.database ?? '';
-    if (safeDb) {
-      try {
-        const conn = getConnection();
-        schemaBlock = await buildSchemaSummary(conn, safeDb, 25);
-      } catch {
-        /* ignore */
-      }
-    }
-    const userSql = stripSqlComments(sql).trim();
-    const system = `Suggest MySQL query optimizations. Return improved SQL in a \`\`\`sql block when applicable. ${SAFETY_RULES}\n\n${schemaBlock ? `Schema:\n${schemaBlock}` : ''}`;
-    const { text, model } = await runAiCompletion(system, `Analyze and optimize:\n\n${userSql}`, 4096);
-    const sqlMatch = text.match(/```sql\n([\s\S]*?)```/i);
-    const optimizedSql = sqlMatch ? sqlMatch[1].trim() : undefined;
-    res.json({ message: text, optimizedSql, model });
   } catch (e) {
     const status = aiErrorStatus(e);
     res.status(status).json({ error: e instanceof Error ? e.message : 'AI request failed' });
@@ -183,12 +165,37 @@ router.post('/analyze', async (req: Request, res: Response) => {
       userContent = `${sqlLine}The query returned a result set. Columns: ${cols.join(', ')}\n\nSample rows (up to 25, JSON):\n${JSON.stringify(preview)}\n\nSummarize what this data represents and call out anything notable (e.g. NULL-heavy columns, query text patterns). Keep it concise.`;
     }
 
-    const system = `You are an expert MySQL DBA helping interpret EXPLAIN plans and query results inside Query Hub.\n${SAFETY_RULES}\n\n${schemaBlock ? `Schema context:\n${schemaBlock}\n` : ''}`;
-    const { text, model } = await runAiCompletion(system, userContent, 3072);
+    const system = `You are an expert MySQL DBA helping interpret EXPLAIN plans and query results inside Query Hub. Finish every section you start.\n${SAFETY_RULES}\n\n${schemaBlock ? `Schema context:\n${schemaBlock}\n` : ''}`;
+    const { text, model } = await runAiCompletion(system, userContent, 4096);
     res.json({ explanation: text, model });
   } catch (e) {
     const status = aiErrorStatus(e);
     res.status(status).json({ error: e instanceof Error ? e.message : 'AI request failed' });
+  }
+});
+
+/** POST /api/ai/sso-login — spawn `aws sso login --profile <bedrock-profile>` on the API host.
+ * Browser opens for SSO authorization; the spawned process exits when the user completes login.
+ * Mirrors how Teleport login is handled — fire-and-forget, status polled separately. */
+router.post('/sso-login', async (_req: Request, res: Response) => {
+  try {
+    const profile = process.env.QUERY_HUB_BEDROCK_PROFILE?.trim();
+    if (!profile) {
+      res.status(503).json({ error: 'QUERY_HUB_BEDROCK_PROFILE is not configured on the server.' });
+      return;
+    }
+    const { spawn } = await import('node:child_process');
+    const proc = spawn('aws', ['sso', 'login', '--profile', profile], {
+      stdio: 'ignore',
+      detached: true,
+      windowsHide: false,
+      shell: process.platform === 'win32', // resolve aws.cmd / aws.exe via PATH on Windows
+    });
+    proc.on('error', () => { /* surfaced via subsequent /ask or /explain failures */ });
+    proc.unref();
+    res.json({ started: true, profile });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to launch AWS SSO login' });
   }
 });
 

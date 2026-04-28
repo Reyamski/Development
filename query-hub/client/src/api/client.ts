@@ -167,18 +167,15 @@ export function aiExplainSql(body: {
   return post('/api/ai/explain', body as Record<string, unknown>);
 }
 
-export function aiOptimizeSql(body: {
-  sql: string;
-  database?: string;
-}): Promise<{ message: string; optimizedSql?: string; model?: string }> {
-  return post('/api/ai/optimize', body as Record<string, unknown>);
-}
-
 export function aiGenerateSql(body: {
   prompt: string;
   database?: string;
 }): Promise<{ message: string; sql?: string; model?: string }> {
   return post('/api/ai/generate', body as Record<string, unknown>);
+}
+
+export function aiSsoLogin(): Promise<{ started: boolean; profile?: string }> {
+  return post('/api/ai/sso-login', {});
 }
 
 export function aiAnalyzeContext(body: {
