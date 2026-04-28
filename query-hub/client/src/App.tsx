@@ -60,7 +60,7 @@ export default function App() {
   const tabDefs: { id: SidebarTab; label: string; hint: string }[] = [
     { id: 'connection', label: 'Connection', hint: 'Cluster & MySQL' },
     { id: 'history', label: 'History', hint: 'Runs & saved' },
-    { id: 'ai', label: 'AI', hint: 'Ask · Explain · Optimize' },
+    { id: 'ai', label: 'AI', hint: 'Ask · Explain · Analyze' },
   ];
 
   const tabBtn = ({ id, label, hint }: { id: SidebarTab; label: string; hint: string }) => (
@@ -68,16 +68,17 @@ export default function App() {
       type="button"
       key={id}
       aria-current={sidebarTab === id ? 'page' : undefined}
-      className={`w-full text-left rounded-xl px-3 py-2.5 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-par-purple focus-visible:ring-offset-2 focus-visible:ring-offset-[#ebe9f5] ${
+      title={hint}
+      className={`flex flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-par-purple focus-visible:ring-offset-1 ${
         sidebarTab === id
-          ? 'bg-white text-par-navy shadow-qh-sm ring-1 ring-par-purple/15 font-semibold'
-          : 'text-par-navy/75 hover:bg-white/60 hover:text-par-navy font-medium'
+          ? 'bg-white text-par-navy shadow-qh-sm ring-1 ring-par-purple/20'
+          : 'text-par-navy/65 hover:bg-white/60 hover:text-par-navy'
       }`}
       onClick={() => setSidebarTab(id)}
     >
-      <span className="block text-sm leading-tight">{label}</span>
+      <span className={`block text-[12px] leading-tight ${sidebarTab === id ? 'font-bold' : 'font-semibold'}`}>{label}</span>
       <span
-        className={`block text-[10px] mt-0.5 ${sidebarTab === id ? 'text-par-text/50 font-medium' : 'text-par-text/40'}`}
+        className={`block text-[9px] leading-tight ${sidebarTab === id ? 'text-par-text/55 font-medium' : 'text-par-text/40'}`}
       >
         {hint}
       </span>
@@ -131,8 +132,8 @@ export default function App() {
         <aside className="w-[19rem] shrink-0 border-r border-par-purple/10 bg-[#ebe9f5]/80 flex flex-col overflow-hidden">
           <div className="px-3 pt-3 pb-2 shrink-0">
             <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-par-navy/40 mb-2 px-1">Workspace</p>
-            <div className="p-1 rounded-2xl bg-par-light-purple/50 border border-par-purple/10 shadow-qh-inset">
-              <nav className="flex flex-col gap-1" role="tablist" aria-label="Sidebar">
+            <div className="p-1 rounded-xl bg-par-light-purple/50 border border-par-purple/10 shadow-qh-inset">
+              <nav className="grid grid-cols-3 gap-1" role="tablist" aria-label="Sidebar">
                 {tabDefs.map((t) => tabBtn(t))}
               </nav>
             </div>

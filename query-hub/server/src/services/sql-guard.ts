@@ -26,6 +26,16 @@ export function countStatements(sql: string): number {
     .filter(Boolean).length;
 }
 
+/**
+ * Read-only allowlist. Only statements starting with one of these tokens are permitted.
+ * Anything else (INSERT/UPDATE/DELETE/REPLACE/CALL/LOCK/BEGIN/COMMIT/MERGE/etc.) is blocked.
+ *
+ * USE is intentionally NOT in this list — database switching happens server-side via
+ * `conn.query("USE ...")` in query-runner; user-supplied USE statements are not allowed
+ * because they'd let a query mutate session state outside the chosen database scope.
+ */
+const READ_ONLY_PREFIXES = ['SELECT', 'WITH', 'SHOW', 'DESCRIBE', 'DESC', 'EXPLAIN'] as const;
+
 export function guardSql(sql: string): SqlGuardResult {
   const trimmed = stripSqlComments(sql).trim();
   if (!trimmed) {
@@ -42,76 +52,37 @@ export function guardSql(sql: string): SqlGuardResult {
 
   const upper = trimmed.toUpperCase();
 
-  // DDL
-  if (/^\s*(CREATE|ALTER|DROP|TRUNCATE|RENAME)\s+/i.test(trimmed)) {
+  // Allowlist — must start with a known read-only verb
+  const matchedPrefix = READ_ONLY_PREFIXES.find((p) => {
+    // Word boundary: the verb must be followed by whitespace, paren, or end of string.
+    const re = new RegExp(`^${p}(\\s|\\(|$)`, 'i');
+    return re.test(trimmed);
+  });
+
+  if (!matchedPrefix) {
     return {
       allowed: false,
-      blockedPattern: 'DDL',
-      reason: 'DDL statements (CREATE/ALTER/DROP/TRUNCATE/RENAME) are not allowed',
+      blockedPattern: 'NOT_READ_ONLY',
+      reason: `Query Hub is read-only — only ${READ_ONLY_PREFIXES.join('/')} statements are allowed`,
     };
   }
 
-  // Privilege / users
-  if (
-    /^\s*(GRANT|REVOKE)\s+/i.test(trimmed) ||
-    /^\s*(CREATE|ALTER|DROP)\s+USER\b/i.test(trimmed) ||
-    /^\s*ALTER\s+USER\b/i.test(trimmed)
-  ) {
-    return {
-      allowed: false,
-      blockedPattern: 'PRIVILEGE',
-      reason: 'Privilege and user-management statements are not allowed',
-    };
-  }
-
-  // Admin / server
-  if (
-    /^\s*(SHUTDOWN|KILL)\b/i.test(trimmed) ||
-    /^\s*RESET\s+/i.test(trimmed) ||
-    /^\s*PURGE\s+/i.test(trimmed) ||
-    /^\s*FLUSH\s+/i.test(trimmed)
-  ) {
-    return {
-      allowed: false,
-      blockedPattern: 'ADMIN',
-      reason: 'Server administration statements are not allowed',
-    };
-  }
-
-  // File I/O
-  if (
-    /^\s*LOAD\s+DATA\b/i.test(trimmed) ||
-    /\bINTO\s+(OUTFILE|DUMPFILE)\b/i.test(upper)
-  ) {
+  // Belt-and-suspenders: even within an allowed prefix, reject embedded write/file patterns
+  // (e.g. SELECT ... INTO OUTFILE — technically a SELECT but writes a file on the server).
+  if (/\bINTO\s+(OUTFILE|DUMPFILE)\b/i.test(upper)) {
     return {
       allowed: false,
       blockedPattern: 'FILE_IO',
-      reason: 'LOAD DATA and INTO OUTFILE/DUMPFILE are not allowed',
+      reason: 'INTO OUTFILE / DUMPFILE is not allowed',
     };
   }
 
-  // User SET (we use SET SESSION internally on the server)
-  if (/^\s*SET\s+/i.test(trimmed)) {
+  // SELECT ... FOR UPDATE / FOR SHARE acquire row locks — block to avoid blocking writers.
+  if (/\bFOR\s+(UPDATE|SHARE)\b/i.test(upper)) {
     return {
       allowed: false,
-      blockedPattern: 'SET',
-      reason: 'SET statements are not allowed from the editor',
-    };
-  }
-
-  // DELETE / UPDATE without WHERE
-  if (/^\s*DELETE\s+FROM\b/i.test(trimmed) && !/\bWHERE\b/i.test(upper)) {
-    return {
-      allowed: false,
-      blockedPattern: 'DELETE_NO_WHERE',
-      reason: 'DELETE without WHERE is not allowed',
-    };
-  }
-  if (/^\s*UPDATE\b/i.test(trimmed) && !/\bWHERE\b/i.test(upper)) {
-    return {
-      allowed: false,
-      blockedPattern: 'UPDATE_NO_WHERE',
-      reason: 'UPDATE without WHERE is not allowed',
+      blockedPattern: 'LOCK_READ',
+      reason: 'SELECT ... FOR UPDATE / FOR SHARE is not allowed (acquires row locks)',
     };
   }
 
